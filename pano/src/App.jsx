@@ -12,7 +12,7 @@ import {
  *  (ör. https://api.senindomain.com). Vite kullanıyorsan
  *  import.meta.env.VITE_API_URL da okuyabilirsin.
  * ------------------------------------------------------------------ */
-const API = "https://turkiye-elektrik-api-v2.onrender.com";
+const API = "https://turkiye-elektrik-panosu-v2.onrender.com";
 
 /* --- Yedek (demo) veri: backend'e ulaşılamazsa gösterilir --- */
 const DEMO_SOURCES = [
