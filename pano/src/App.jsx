@@ -144,6 +144,7 @@ function App() {
   const [yearFrom, setYearFrom] = useState(DEMO_HIST[0].year);
   const [yearTo, setYearTo] = useState(DEMO_HIST[DEMO_HIST.length - 1].year);
   const [live, setLive] = useState(false);
+  const [fiyat, setFiyat] = useState([]);
   const [asOf, setAsOf] = useState("2025-12");
 
   useEffect(() => {
@@ -158,8 +159,8 @@ function App() {
     const j = (p) => fetch(`${API}${p}`, { signal: ac.signal }).then((r) => {
       if (!r.ok) throw new Error("HTTP " + r.status); return r.json();
     });
-    Promise.allSettled([j("/api/kurulu-guc"), j("/api/uretim"), j("/api/tarihsel"), j("/api/uretim-tarihsel")])
-      .then(([kg, ur, th, ut]) => {
+    Promise.allSettled([j("/api/kurulu-guc"), j("/api/uretim"), j("/api/tarihsel"), j("/api/uretim-tarihsel"), j("/api/fiyatlar")])
+      .then(([kg, ur, th, ut, fy]) => {
         let ok = false;
         if (kg.status === "fulfilled" && kg.value?.kaynaklar?.length) {
           setSources(kg.value.kaynaklar); setAsOf(kg.value.as_of || asOf); ok = true;
@@ -180,9 +181,12 @@ function App() {
           const lastDefault = fullYears.length ? fullYears[fullYears.length - 1] : ut.value[ut.value.length - 1];
           setUYearTo(lastDefault.year);
         }
+        if (fy.status === "fulfilled" && Array.isArray(fy.value) && fy.value.length) {
+          setFiyat(fy.value);
+        }
         setLive(ok);
         if (!ok && typeof window !== "undefined" && window.showError) {
-          const errs = [kg, ur, th, ut].filter((x) => x.status === "rejected")
+          const errs = [kg, ur, th, ut, fy].filter((x) => x.status === "rejected")
             .map((x) => String((x.reason && x.reason.message) || x.reason)).join(" | ");
           window.showError("Backend'e baglanilamadi (" + API + "): " + (errs || "bilinmeyen sebep"));
         }
@@ -200,6 +204,12 @@ function App() {
   const nameOf = (k) => sources.find((s) => s.key === k)?.name || NAME[k] || k;
 
   const cur = day[day.length - 1] || day[0];
+  const curFiyat = fiyat[fiyat.length - 1];
+  const fiyatOrt = fiyat.length
+    ? Math.round((fiyat.reduce((s, r) => s + r.ptf, 0) / fiyat.length) * 100) / 100
+    : null;
+  const fiyatMin = fiyat.length ? fiyat.reduce((a, b) => (a.ptf < b.ptf ? a : b)) : null;
+  const fiyatMax = fiyat.length ? fiyat.reduce((a, b) => (a.ptf > b.ptf ? a : b)) : null;
   const uretim = cur.toplam;
   const tuketim = Math.round(uretim * 0.986);
   const sorted = useMemo(() => [...sources].sort((a, b) => b.mw - a.mw), [sources]);
@@ -218,7 +228,7 @@ function App() {
     : uretimView;
 
   const TABS = [["genel","Genel Bakış"],["kurulu","Kurulu Güç"],
-                ["uretim","Üretim"],["tarih","Tarihsel"]];
+                ["uretim","Üretim"],["fiyat","Fiyatlar"],["tarih","Tarihsel"]];
 
   return (
     <div className="root">
@@ -475,6 +485,57 @@ function App() {
                   ))}
               </div>
             </section>
+          </>
+        )}
+
+        {tab === "fiyat" && (
+          <>
+            {fiyat.length === 0 ? (
+              <section className="card">
+                <div className="empty">Fiyat verisi yükleniyor ya da şu an mevcut değil.</div>
+              </section>
+            ) : (
+              <>
+                <section className="grid grid-4">
+                  <Kpi label="Anlık PTF" value={fmt(curFiyat?.ptf)} unit=" TL/MWh"
+                       sub={`${curFiyat?.saat} itibarıyla`} accent="#38BDF8" />
+                  <Kpi label="Günlük Ortalama PTF" value={fmt(fiyatOrt)} unit=" TL/MWh"
+                       sub="Bugünün saatlik ortalaması" accent="#FBBF24" />
+                  <Kpi label="Gün İçi En Düşük" value={fmt(fiyatMin?.ptf)} unit=" TL/MWh"
+                       sub={`${fiyatMin?.saat}`} accent="#84CC16" />
+                  <Kpi label="Gün İçi En Yüksek" value={fmt(fiyatMax?.ptf)} unit=" TL/MWh"
+                       sub={`${fiyatMax?.saat}`} accent="#F97316" />
+                </section>
+
+                <section className="card signature">
+                  <div className="card-h">
+                    <div>
+                      <h2 className="card-title">Saatlik Piyasa Fiyatları</h2>
+                      <p className="card-sub">PTF (Piyasa Takas Fiyatı), SMF (Sistem Marjinal Fiyatı), AOF (Ağırlıklı Ortalama Fiyat) — TL/MWh</p>
+                    </div>
+                    <span className="badge">{fiyat.length} saat</span>
+                  </div>
+                  <ResponsiveContainer width="100%" height={340}>
+                    <LineChart data={fiyat} margin={{ top: 8, right: 8, left: -4, bottom: 0 }}>
+                      <CartesianGrid stroke="#1E293B" vertical={false} />
+                      <XAxis dataKey="saat" tick={{ fill: "#64748B", fontSize: 11 }}
+                             interval={2} tickLine={false} axisLine={{ stroke: "#1E293B" }} />
+                      <YAxis tick={{ fill: "#64748B", fontSize: 11 }} tickLine={false}
+                             axisLine={false} tickFormatter={(v) => `${Math.round(v)}`} />
+                      <Tooltip content={<ChartTooltip unit="TL/MWh" />} />
+                      <Line type="monotone" dataKey="ptf" name="PTF" stroke="#38BDF8" strokeWidth={2.5} dot={false} />
+                      <Line type="monotone" dataKey="smf" name="SMF" stroke="#F97316" strokeWidth={2} dot={false} strokeDasharray="4 3" />
+                      <Line type="monotone" dataKey="aof" name="AOF" stroke="#84CC16" strokeWidth={2} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                  <div className="legend">
+                    <span className="lg"><span className="lg-dot" style={{ background: "#38BDF8" }} />PTF (gün öncesi piyasa)</span>
+                    <span className="lg"><span className="lg-dot" style={{ background: "#F97316" }} />SMF (dengeleme fiyatı)</span>
+                    <span className="lg"><span className="lg-dot" style={{ background: "#84CC16" }} />AOF (ağırlıklı ortalama)</span>
+                  </div>
+                </section>
+              </>
+            )}
           </>
         )}
 

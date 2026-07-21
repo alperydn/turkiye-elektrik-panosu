@@ -228,6 +228,32 @@ def _to_panel(row):
     return r
 
 
+def _fiyatlar(start, end):
+    """PTF (mcp), SMF (smp) ve AOF (wap) servislerini saat bazinda birlestirir."""
+    def call(service, valcol):
+        try:
+            res = eptr.call(service, start_date=start, end_date=end)
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"EPİAŞ {service} basarisiz: {e}")
+        rows = res.to_dict(orient="records") if hasattr(res, "to_dict") else res
+        return {r["date"]: float(r[valcol]) for r in rows if r.get("date") is not None}
+
+    ptf_map = call("mcp", "price")
+    smf_map = call("smp", "systemMarginalPrice")
+    aof_map = call("wap", "wap")
+
+    dates = sorted(set(ptf_map) | set(smf_map) | set(aof_map))
+    out = []
+    for d in dates:
+        out.append({
+            "saat": d[11:16],
+            "ptf": round(ptf_map.get(d, 0), 2),
+            "smf": round(smf_map.get(d, 0), 2),
+            "aof": round(aof_map.get(d, 0), 2),
+        })
+    return out
+
+
 # --- basit onbellek ---
 _cache = {}
 def cached(key, ttl, producer):
@@ -273,6 +299,13 @@ def uretim(start: str | None = Query(None), end: str | None = Query(None)):
     end = end or date.today().isoformat()
     start = start or end
     return cached(f"uretim:{start}:{end}", 900, lambda: _rt_gen(start, end))
+
+
+@app.get("/api/fiyatlar")
+def fiyatlar(start: str | None = Query(None), end: str | None = Query(None)):
+    end = end or date.today().isoformat()
+    start = start or end
+    return cached(f"fiyatlar:{start}:{end}", 900, lambda: _fiyatlar(start, end))
 
 
 @app.get("/health")
