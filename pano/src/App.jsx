@@ -175,7 +175,10 @@ function App() {
         if (ut.status === "fulfilled" && Array.isArray(ut.value) && ut.value.length) {
           setUretimHist(ut.value);
           setUYearFrom(ut.value[0].year);
-          setUYearTo(ut.value[ut.value.length - 1].year);
+          // varsayilan gorunum kismi yili degil, en son TAM yili (12 ay) esas alsin
+          const fullYears = ut.value.filter((r) => r.ay_sayisi === 12);
+          const lastDefault = fullYears.length ? fullYears[fullYears.length - 1] : ut.value[ut.value.length - 1];
+          setUYearTo(lastDefault.year);
         }
         setLive(ok);
         if (!ok && typeof window !== "undefined" && window.showError) {
