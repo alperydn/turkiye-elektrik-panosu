@@ -140,6 +140,7 @@ function App() {
   const [uretimSel, setUretimSel] = useState(HIST_SOURCES.map((s) => s.key));
   const [uYearFrom, setUYearFrom] = useState(null);
   const [uYearTo, setUYearTo] = useState(null);
+  const [uretimMode, setUretimMode] = useState("mutlak"); // "mutlak" | "yuzde"
   const [yearFrom, setYearFrom] = useState(DEMO_HIST[0].year);
   const [yearTo, setYearTo] = useState(DEMO_HIST[DEMO_HIST.length - 1].year);
   const [live, setLive] = useState(false);
@@ -203,6 +204,15 @@ function App() {
   const histView = hist.filter((h) => h.year >= yearFrom && h.year <= yearTo);
   const uretimYears = uretimHist.map((h) => h.year);
   const uretimView = uretimHist.filter((h) => h.year >= (uYearFrom || "0") && h.year <= (uYearTo || "9999"));
+  const uretimViewData = uretimMode === "yuzde"
+    ? uretimView.map((row) => {
+        const out = { year: row.year, toplam: row.toplam };
+        HIST_SOURCES.forEach((s) => {
+          out[s.key] = row.toplam ? Math.round((row[s.key] / row.toplam) * 1000) / 10 : 0;
+        });
+        return out;
+      })
+    : uretimView;
 
   const TABS = [["genel","Genel Bakış"],["kurulu","Kurulu Güç"],
                 ["uretim","Üretim"],["tarih","Tarihsel"]];
@@ -577,6 +587,12 @@ function App() {
                       </select>
                     </div>
                     <div className="chip-actions">
+                      <button className={"chip-btn" + (uretimMode === "mutlak" ? " active" : "")}
+                              onClick={() => setUretimMode("mutlak")}>GWh</button>
+                      <button className={"chip-btn" + (uretimMode === "yuzde" ? " active" : "")}
+                              onClick={() => setUretimMode("yuzde")}>%</button>
+                    </div>
+                    <div className="chip-actions">
                       <button className="chip-btn"
                               onClick={() => setUretimSel(HIST_SOURCES.map((s) => s.key))}>Tümü</button>
                       <button className="chip-btn" onClick={() => setUretimSel([])}>Temizle</button>
@@ -604,13 +620,14 @@ function App() {
                   <div className="empty">En az bir kaynak seç — grafik burada görünecek.</div>
                 ) : (
                   <ResponsiveContainer width="100%" height={330}>
-                    <LineChart data={uretimView} margin={{ top: 8, right: 8, left: -4, bottom: 0 }}>
+                    <LineChart data={uretimViewData} margin={{ top: 8, right: 8, left: -4, bottom: 0 }}>
                       <CartesianGrid stroke="#1E293B" vertical={false} />
                       <XAxis dataKey="year" tick={{ fill: "#64748B", fontSize: 12 }}
                              tickLine={false} axisLine={{ stroke: "#1E293B" }} />
                       <YAxis tick={{ fill: "#64748B", fontSize: 11 }} tickLine={false}
-                             axisLine={false} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
-                      <Tooltip content={<ChartTooltip unit="GWh" />} />
+                             axisLine={false}
+                             tickFormatter={(v) => uretimMode === "yuzde" ? `%${v}` : `${Math.round(v / 1000)}k`} />
+                      <Tooltip content={<ChartTooltip unit={uretimMode === "yuzde" ? "%" : "GWh"} />} />
                       {HIST_SOURCES.filter((s) => uretimSel.includes(s.key)).map((s) => (
                         <Line key={s.key} type="monotone" dataKey={s.key} name={s.name}
                               stroke={s.color} strokeWidth={2.5} dot={{ r: 3 }} />
@@ -723,6 +740,7 @@ const CSS = `
 .chip-btn{ font-family:inherit; font-size:11px; font-weight:600; color:var(--tx2); background:var(--panel2);
   border:1px solid var(--line); padding:5px 10px; border-radius:7px; cursor:pointer; }
 .chip-btn:hover{ color:var(--tx); border-color:var(--tx3); }
+.chip-btn.active{ color:#38BDF8; border-color:#38BDF8; background:rgba(56,189,248,.1); }
 .empty{ text-align:center; color:var(--tx3); font-size:13px; padding:60px 0; }
 .ft{ max-width:1180px; margin:0 auto; padding:16px 24px 30px; font-size:11.5px; color:var(--tx3); }
 `;
