@@ -544,7 +544,7 @@ function App() {
               <div className="card-h">
                 <div>
                   <h2 className="card-title">Yıllık Toplam Kurulu Güç</h2>
-                  <p className="card-sub">2021–2025 (MW)</p>
+                  <p className="card-sub">{yearFrom}–{yearTo} (MW) — {asOf} itibarıyla en güncel değer</p>
                 </div>
               </div>
               <ResponsiveContainer width="100%" height={280}>
@@ -562,6 +562,10 @@ function App() {
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
+              <p className="card-sub" style={{ marginTop: 10 }}>
+                Diğer yıllar Aralık (yıl sonu) değeridir; en son yıl ({hist[hist.length - 1]?.year}) için
+                gösterilen rakam yılın tamamını değil, {asOf} itibarıyla ulaşılan kurulu gücü yansıtır.
+              </p>
             </section>
 
             {uretimHist.length > 0 && (
