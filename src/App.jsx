@@ -136,6 +136,10 @@ function App() {
   const [day, setDay] = useState(buildDemoDay);
   const [hist, setHist] = useState(DEMO_HIST);
   const [histSel, setHistSel] = useState(HIST_SOURCES.map((s) => s.key));
+  const [uretimHist, setUretimHist] = useState([]);
+  const [uretimSel, setUretimSel] = useState(HIST_SOURCES.map((s) => s.key));
+  const [uYearFrom, setUYearFrom] = useState(null);
+  const [uYearTo, setUYearTo] = useState(null);
   const [yearFrom, setYearFrom] = useState(DEMO_HIST[0].year);
   const [yearTo, setYearTo] = useState(DEMO_HIST[DEMO_HIST.length - 1].year);
   const [live, setLive] = useState(false);
@@ -153,8 +157,8 @@ function App() {
     const j = (p) => fetch(`${API}${p}`, { signal: ac.signal }).then((r) => {
       if (!r.ok) throw new Error("HTTP " + r.status); return r.json();
     });
-    Promise.allSettled([j("/api/kurulu-guc"), j("/api/uretim"), j("/api/tarihsel")])
-      .then(([kg, ur, th]) => {
+    Promise.allSettled([j("/api/kurulu-guc"), j("/api/uretim"), j("/api/tarihsel"), j("/api/uretim-tarihsel")])
+      .then(([kg, ur, th, ut]) => {
         let ok = false;
         if (kg.status === "fulfilled" && kg.value?.kaynaklar?.length) {
           setSources(kg.value.kaynaklar); setAsOf(kg.value.as_of || asOf); ok = true;
@@ -167,9 +171,14 @@ function App() {
           setYearFrom(th.value[0].year);
           setYearTo(th.value[th.value.length - 1].year);
         }
+        if (ut.status === "fulfilled" && Array.isArray(ut.value) && ut.value.length) {
+          setUretimHist(ut.value);
+          setUYearFrom(ut.value[0].year);
+          setUYearTo(ut.value[ut.value.length - 1].year);
+        }
         setLive(ok);
         if (!ok && typeof window !== "undefined" && window.showError) {
-          const errs = [kg, ur, th].filter((x) => x.status === "rejected")
+          const errs = [kg, ur, th, ut].filter((x) => x.status === "rejected")
             .map((x) => String((x.reason && x.reason.message) || x.reason)).join(" | ");
           window.showError("Backend'e baglanilamadi (" + API + "): " + (errs || "bilinmeyen sebep"));
         }
@@ -192,6 +201,8 @@ function App() {
   const sorted = useMemo(() => [...sources].sort((a, b) => b.mw - a.mw), [sources]);
   const histYears = hist.map((h) => h.year);
   const histView = hist.filter((h) => h.year >= yearFrom && h.year <= yearTo);
+  const uretimYears = uretimHist.map((h) => h.year);
+  const uretimView = uretimHist.filter((h) => h.year >= (uYearFrom || "0") && h.year <= (uYearTo || "9999"));
 
   const TABS = [["genel","Genel Bakış"],["kurulu","Kurulu Güç"],
                 ["uretim","Üretim"],["tarih","Tarihsel"]];
@@ -542,6 +553,76 @@ function App() {
                 </BarChart>
               </ResponsiveContainer>
             </section>
+
+            {uretimHist.length > 0 && (
+              <section className="card">
+                <div className="card-h">
+                  <div>
+                    <h2 className="card-title">Yıllara ve Kaynaklara Göre Elektrik Üretimi</h2>
+                    <p className="card-sub">
+                      Yıl aralığı ve kaynakları seç — {uYearFrom}–{uYearTo} (GWh)
+                    </p>
+                  </div>
+                  <div className="hd-controls">
+                    <div className="range">
+                      <label>Aralık</label>
+                      <select value={uYearFrom || ""}
+                        onChange={(e) => { const v = e.target.value; setUYearFrom(v); if (v > uYearTo) setUYearTo(v); }}>
+                        {uretimYears.map((y) => <option key={y} value={y}>{y}</option>)}
+                      </select>
+                      <span className="range-sep">–</span>
+                      <select value={uYearTo || ""}
+                        onChange={(e) => { const v = e.target.value; setUYearTo(v); if (v < uYearFrom) setUYearFrom(v); }}>
+                        {uretimYears.map((y) => <option key={y} value={y}>{y}</option>)}
+                      </select>
+                    </div>
+                    <div className="chip-actions">
+                      <button className="chip-btn"
+                              onClick={() => setUretimSel(HIST_SOURCES.map((s) => s.key))}>Tümü</button>
+                      <button className="chip-btn" onClick={() => setUretimSel([])}>Temizle</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="chips">
+                  {HIST_SOURCES.map((s) => {
+                    const on = uretimSel.includes(s.key);
+                    return (
+                      <button key={s.key}
+                        className={"chip" + (on ? " on" : "")}
+                        style={on ? { "--c": s.color, borderColor: s.color, color: s.color } : {}}
+                        onClick={() => setUretimSel((prev) =>
+                          prev.includes(s.key) ? prev.filter((k) => k !== s.key) : [...prev, s.key])}>
+                        <span className="chip-dot" style={{ background: s.color }} />
+                        {s.name}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {uretimSel.length === 0 ? (
+                  <div className="empty">En az bir kaynak seç — grafik burada görünecek.</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={330}>
+                    <LineChart data={uretimView} margin={{ top: 8, right: 8, left: -4, bottom: 0 }}>
+                      <CartesianGrid stroke="#1E293B" vertical={false} />
+                      <XAxis dataKey="year" tick={{ fill: "#64748B", fontSize: 12 }}
+                             tickLine={false} axisLine={{ stroke: "#1E293B" }} />
+                      <YAxis tick={{ fill: "#64748B", fontSize: 11 }} tickLine={false}
+                             axisLine={false} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
+                      <Tooltip content={<ChartTooltip unit="GWh" />} />
+                      {HIST_SOURCES.filter((s) => uretimSel.includes(s.key)).map((s) => (
+                        <Line key={s.key} type="monotone" dataKey={s.key} name={s.name}
+                              stroke={s.color} strokeWidth={2.5} dot={{ r: 3 }} />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
+                <p className="card-sub" style={{ marginTop: 10 }}>
+                  2026 verisi yılın tamamını değil, o ana kadarki ayları kapsar (kısmi yıl).
+                </p>
+              </section>
+            )}
           </>
         )}
       </main>
@@ -645,4 +726,5 @@ const CSS = `
 .empty{ text-align:center; color:var(--tx3); font-size:13px; padding:60px 0; }
 .ft{ max-width:1180px; margin:0 auto; padding:16px 24px 30px; font-size:11.5px; color:var(--tx3); }
 `;
+
 export default App;
