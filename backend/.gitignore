@@ -1,0 +1,6 @@
+# Kimlik bilgileri ASLA yuklenmez:
+.env
+.eptr2-tgt
+creds/
+__pycache__/
+*.pyc

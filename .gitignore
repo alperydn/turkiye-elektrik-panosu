@@ -1,0 +1,9 @@
+# backend
+backend/.env
+backend/.eptr2-tgt
+backend/__pycache__/
+backend/*.pyc
+
+# pano (Vite/Node)
+pano/node_modules/
+pano/dist/
