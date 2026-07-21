@@ -141,7 +141,6 @@ def _tarihsel_uretim_from_teias():
     header_idxs = [i for i, r in enumerate(rows) if r[1] == "AY"]
     KEYS = ["dogalgaz", "linyit", "ithalKomur", "diger", "biyokutle",
             "jeotermal", "akarsu", "barajli", "gunes", "ruzgar", "toplam"]
-
     yearly = {}
     month_count = {}
     for hi in header_idxs:
@@ -178,11 +177,13 @@ def _tarihsel_uretim_from_teias():
         row = {"year": year, "ay_sayisi": month_count[year]}
         for k in KEYS:
             row[k] = round(yearly[year][k] / 1000, 1)  # MWh -> GWh
+        row["hidro"] = round(row["akarsu"] + row["barajli"], 1)  # HIST_SOURCES grafiginde kullanilan birlesik alan
         out.append(row)
     return out
 
 
-
+def _tarihsel_from_teias():
+    """TEİAŞ kurulu guc Excel'inden yillik kurulu guc serisi (2001-bugun)."""
     rows = _read_teias_rows()
     by_year = {}
     for r in rows:
