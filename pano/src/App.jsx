@@ -176,6 +176,34 @@ function renkSkala(deger, maks) {
   return `rgb(${r},${g},${b})`;
 }
 
+// Kaynak turune gore renk (mumkun oldugunca panonun geri kalaniyla tutarli)
+const KAYNAK_RENK = {
+  GUNES: "#FBBF24", RUZGAR: "#2DD4BF",
+  HES: "#3B82F6", BARAJ: "#3B82F6", AKARSU: "#38BDF8",
+  JES: "#EC4899", JEOTERMAL: "#EC4899",
+  DOGALGAZ: "#F97316", LNG: "#F97316",
+  KOMUR: "#B45309", LINYIT: "#B45309", TASKOMURU: "#B45309", ITHAL_KOMUR: "#64748B",
+  BIYOKUTLE: "#84CC16", BIYOGAZ: "#84CC16",
+  FUELOIL: "#94A3B8", ANA_KAYNAK: "#38BDF8", DIGER: "#94A3B8",
+};
+const kaynakRengi = (k) => KAYNAK_RENK[k] || "#94A3B8";
+
+function hexToRgb(hex) {
+  const h = hex.replace("#", "");
+  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+}
+
+// Bir rengi, koyu lacivert zeminden (deger/maks oranina gore) o rengin tam tonuna dogru karistir
+function tonlaRenk(hex, t) {
+  const [br, bg, bb] = [30, 41, 59]; // taban (koyu lacivert)
+  const [tr, tg, tb] = hexToRgb(hex);
+  const k = Math.max(0.12, Math.min(1, t)); // en dusuk deger bile hafifce gorunsun
+  const r = Math.round(br + k * (tr - br));
+  const g = Math.round(bg + k * (tg - bg));
+  const b = Math.round(bb + k * (tb - bb));
+  return `rgb(${r},${g},${b})`;
+}
+
 /* ------------------------------------------------------------------ */
 function App() {
   const urlParams = useMemo(
@@ -328,16 +356,30 @@ function App() {
 
   const haritaIller = santral?.iller || {};
   const haritaKaynaklari = santral?.kaynak_turleri || [];
+  const ilKaydi = (il) => ilKarsilik(il, haritaIller);
   const ilDegeri = (il) => {
-    const rec = ilKarsilik(il, haritaIller);
+    const rec = ilKaydi(il);
     if (!rec) return 0;
     return haritaKaynak === "TOPLAM" ? rec.toplam : (rec.kaynaklar[haritaKaynak] || 0);
+  };
+  const ilBaskinKaynak = (il) => {
+    const rec = ilKaydi(il);
+    if (!rec) return null;
+    const entries = Object.entries(rec.kaynaklar);
+    if (!entries.length) return null;
+    return entries.sort((a, b) => b[1] - a[1])[0][0];
   };
   const haritaMaks = useMemo(() => {
     let m = 0;
     TR_PROVINCES.forEach((p) => { m = Math.max(m, ilDegeri(p.name)); });
     return m;
   }, [santral, haritaKaynak]);
+  const ilRengi = (il) => {
+    const deger = ilDegeri(il);
+    if (!deger) return "#1E293B";
+    const renk = haritaKaynak === "TOPLAM" ? kaynakRengi(ilBaskinKaynak(il)) : kaynakRengi(haritaKaynak);
+    return tonlaRenk(renk, deger / (haritaMaks || 1));
+  };
   const topIller = useMemo(() => {
     return TR_PROVINCES.map((p) => ({ name: p.name, deger: ilDegeri(p.name) }))
       .filter((x) => x.deger > 0)
@@ -882,9 +924,9 @@ function App() {
                     {haritaKaynaklari.map((k) => (
                       <button key={k}
                         className={"chip" + (haritaKaynak === k ? " on" : "")}
-                        style={haritaKaynak === k ? { borderColor: "#38BDF8", color: "#38BDF8" } : {}}
+                        style={haritaKaynak === k ? { borderColor: kaynakRengi(k), color: kaynakRengi(k) } : {}}
                         onClick={() => setHaritaKaynak(k)}>
-                        <span className="chip-dot" style={{ background: "#38BDF8" }} />
+                        <span className="chip-dot" style={{ background: kaynakRengi(k) }} />
                         {tesisTurAdi(k)}
                       </button>
                     ))}
@@ -894,19 +936,36 @@ function App() {
                     <svg viewBox={TR_VIEWBOX} className="harita-svg">
                       {TR_PROVINCES.map((p) => {
                         const deger = ilDegeri(p.name);
+                        const baskin = haritaKaynak === "TOPLAM" ? ilBaskinKaynak(p.name) : null;
                         return (
                           <path key={p.name} d={p.path}
-                                fill={renkSkala(deger, haritaMaks)}
+                                fill={ilRengi(p.name)}
                                 stroke="#0A0F1C" strokeWidth="0.4">
-                            <title>{p.name}: {fmtHedef(deger)} MW</title>
+                            <title>
+                              {p.name}: {fmtHedef(deger)} MW{baskin ? ` — en çok ${tesisTurAdi(baskin)}` : ""}
+                            </title>
                           </path>
                         );
                       })}
                     </svg>
                     <div className="harita-legend">
-                      <span>0 MW</span>
-                      <div className="harita-legend-bar" />
-                      <span>{fmtHedef(haritaMaks)} MW</span>
+                      {haritaKaynak === "TOPLAM" ? (
+                        <div className="harita-legend-chips">
+                          {haritaKaynaklari.map((k) => (
+                            <span className="lg" key={k}>
+                              <span className="lg-dot" style={{ background: kaynakRengi(k) }} />
+                              {tesisTurAdi(k)}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <>
+                          <span>0 MW</span>
+                          <div className="harita-legend-bar"
+                               style={{ background: `linear-gradient(90deg, #1E293B, ${kaynakRengi(haritaKaynak)})` }} />
+                          <span>{fmtHedef(haritaMaks)} MW</span>
+                        </>
+                      )}
                     </div>
                   </div>
                   <p className="card-sub" style={{ marginTop: 8 }}>
@@ -925,7 +984,8 @@ function App() {
                         <span className="bar-name">{r.name}</span>
                         <div className="bar-track">
                           <div className="bar-fill" style={{
-                            width: `${(r.deger / (topIller[0]?.deger || 1)) * 100}%`, background: "#38BDF8" }} />
+                            width: `${(r.deger / (topIller[0]?.deger || 1)) * 100}%`,
+                            background: haritaKaynak === "TOPLAM" ? kaynakRengi(ilBaskinKaynak(r.name)) : kaynakRengi(haritaKaynak) }} />
                         </div>
                         <span className="bar-val">{fmtHedef(r.deger)}</span>
                       </div>
@@ -1273,9 +1333,9 @@ const CSS = `
 .harita-svg{ width:100%; max-width:600px; height:auto; }
 .harita-svg path{ transition:opacity .15s ease; cursor:pointer; }
 .harita-svg path:hover{ opacity:0.75; stroke:#38BDF8; stroke-width:1; }
-.harita-legend{ display:flex; align-items:center; gap:10px; font-size:11.5px; color:var(--tx3); }
-.harita-legend-bar{ width:160px; height:8px; border-radius:4px;
-  background:linear-gradient(90deg, #1E293B, #38BDF8); }
+.harita-legend{ display:flex; align-items:center; gap:10px; font-size:11.5px; color:var(--tx3); flex-wrap:wrap; justify-content:center; }
+.harita-legend-chips{ display:flex; flex-wrap:wrap; gap:6px 14px; justify-content:center; }
+.harita-legend-bar{ width:160px; height:8px; border-radius:4px; }
 `;
 
 export default App;
