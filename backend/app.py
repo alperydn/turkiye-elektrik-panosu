@@ -21,7 +21,8 @@ Calistirma:
 
 import os
 import time
-from datetime import date
+import io
+from datetime import date, timedelta
 from pathlib import Path
 
 import openpyxl
@@ -126,6 +127,127 @@ def _kurulu_guc_from_teias():
             "renewable": meta["renewable"],
         })
     return {"as_of": last["period"], "kaynaklar": kaynaklar}
+
+
+# ------------------------------------------------------------------
+#  YTBS CANLI KURULU GUC (gunluk) - kirilgan JSF postback, hata olursa
+#  cagiran taraf statik aylik TEIAS dosyasina (_kurulu_guc_from_teias)
+#  geri doner.
+# ------------------------------------------------------------------
+YTBS_URL = "https://ytbsbilgi.teias.gov.tr/ytbsbilgi/frm_istatistikler.jsf"
+
+
+def _ytbs_viewstate(html):
+    import re
+    m = re.search(r'jakarta\.faces\.ViewState[^>]*value="([^"]*)"', html)
+    if not m:
+        raise RuntimeError("YTBS: ViewState bulunamadi")
+    return m.group(1)
+
+
+def _kurulu_guc_from_ytbs_canli():
+    dun = (date.today() - timedelta(days=1)).strftime("%d-%m-%Y")
+    s = requests.Session()
+    s.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "tr-TR,tr;q=0.9",
+        "Origin": "https://ytbsbilgi.teias.gov.tr",
+        "Referer": YTBS_URL,
+    })
+
+    r1 = s.get(YTBS_URL, timeout=30)
+    vs1 = _ytbs_viewstate(r1.text)
+
+    body_goster = {
+        "formdash": "formdash",
+        "hidden1": "13",
+        "formdash:bitisTarihi2_input": dun,
+        "formdash:yilsecim_focus": "",
+        "jakarta.faces.ViewState": vs1,
+        "formdash:gunlukRapor": "",
+    }
+    r2 = s.post(YTBS_URL, data=body_goster, timeout=30)
+    vs2 = _ytbs_viewstate(r2.text)
+
+    body_excel = {
+        "formdash": "formdash",
+        "hidden1": "13",
+        "formdash:bitisTarihi2_input": dun,
+        "formdash:yilsecim_focus": "",
+        "jakarta.faces.ViewState": vs2,
+        "formdash:j_idt35.x": "5",
+        "formdash:j_idt35.y": "5",
+    }
+    r3 = s.post(YTBS_URL, data=body_excel, timeout=30)
+    ct = r3.headers.get("Content-Type", "")
+    is_excel = "spreadsheet" in ct or "excel" in ct or "octet-stream" in ct or r3.headers.get("Content-Disposition")
+    if not is_excel:
+        raise RuntimeError(f"YTBS: excel donmedi (content-type={ct})")
+
+    wb = openpyxl.load_workbook(io.BytesIO(r3.content), data_only=True)
+    if "Rapor327 2" not in wb.sheetnames:
+        raise RuntimeError("YTBS: 'Rapor327 2' sayfasi bulunamadi")
+    ws = wb["Rapor327 2"]
+    rows = list(ws.iter_rows(values_only=True))
+
+    header = rows[3]
+    idx = {name: i for i, name in enumerate(header) if name}
+    total_row = next((r for r in rows if r[0] == "TOPLAM (MW)"), None)
+    if total_row is None:
+        raise RuntimeError("YTBS: TOPLAM (MW) satiri bulunamadi")
+
+    def g(col):
+        i = idx.get(col)
+        v = total_row[i] if i is not None else None
+        return float(v) if v is not None else 0.0
+
+    vals = {
+        "gunes":      g("GÜNEŞ"),
+        "dogalgaz":   g("DOĞAL GAZ") + g("LNG"),
+        "barajli":    g("BARAJLI"),
+        "ruzgar":     g("RÜZGAR"),
+        "linyit":     g("LİNYİT") + g("TAŞ KÖMÜR") + g("ASFALTİT KÖMÜR"),
+        "ithalKomur": g("İTHAL KÖMÜR"),
+        "akarsu":     g("AKARSU"),
+        "biyokutle":  g("BİYOKÜTLE"),
+        "jeotermal":  g("JEOTERMAL"),
+        "diger":      g("FUEL OİL") + g("MOTORİN") + g("NAFTA") + g("LPG") + g("ATIK ISI"),
+    }
+
+    tarih_hucre = rows[2][1] if len(rows) > 2 else None
+    as_of = str(tarih_hucre) if tarih_hucre else dun
+
+    kaynaklar = []
+    for key, meta in SOURCE_META.items():
+        kaynaklar.append({
+            "key": key,
+            "name": meta["name"],
+            "mw": round(vals.get(key, 0)),
+            "color": meta["color"],
+            "renewable": meta["renewable"],
+        })
+    return {"as_of": f"{as_of} (YTBS günlük)", "kaynaklar": kaynaklar}
+
+
+def _kurulu_guc_guncel():
+    """Once canli YTBS gunluk veriyi dener; olmazsa statik aylik TEIAS
+    dosyasina geri doner. Boylece site hicbir zaman bozulmaz.
+
+    GECICI: yedek (fallback) su an KAPALI - hata ayiklama icin gercek
+    YTBS hatasi HTTP yanitinda gorunecek sekilde firlatiliyor. Geri
+    acmak icin asagidaki try/except blogunu eski haline getir."""
+    try:
+        return _kurulu_guc_from_ytbs_canli()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"YTBS canli veri basarisiz: {e}")
+    # --- eski (yedekli) hali, geri acmak icin yukaridaki try/except yerine kullan ---
+    # try:
+    #     return _kurulu_guc_from_ytbs_canli()
+    # except Exception:
+    #     return _kurulu_guc_from_teias()
 
 
 def _tarihsel_uretim_from_teias():
@@ -472,7 +594,7 @@ def _rt_gen(start, end):
 @app.get("/api/kurulu-guc")
 def kurulu_guc():
     # TEİAŞ Excel'i pek sik degismiyor (ayda bir); 6 saat onbellek yeterli.
-    return cached("kurulu-guc", 6 * 3600, _kurulu_guc_from_teias)
+    return cached("kurulu-guc", 6 * 3600, _kurulu_guc_guncel)
 
 
 @app.get("/api/tarihsel")
