@@ -629,3 +629,37 @@ def santral_harita():
 @app.get("/health")
 def health():
     return {"ok": True}
+
+
+@app.get("/api/debug/ag-testi")
+def ag_testi():
+    """GECICI teshis ucu: Render'in ytbsbilgi.teias.gov.tr'ye gercekten
+    baglanip baglanamadigini, DNS/TCP asamalarini ayirarak gosterir.
+    Karsilastirma icin zaten calistigini bildigimiz seffaflik.epias.com.tr
+    ve genel internet (google.com) de test edilir."""
+    import socket
+
+    def test_host(host, port=443):
+        sonuc = {"host": host}
+        try:
+            ip = socket.gethostbyname(host)
+            sonuc["dns"] = f"basarili -> {ip}"
+        except Exception as e:
+            sonuc["dns"] = f"BASARISIZ: {e}"
+            sonuc["tcp"] = "denenmedi (dns basarisiz)"
+            return sonuc
+        try:
+            start = time.time()
+            with socket.create_connection((host, port), timeout=6):
+                sure = round(time.time() - start, 2)
+            sonuc["tcp"] = f"basarili ({sure} sn)"
+        except Exception as e:
+            sonuc["tcp"] = f"BASARISIZ: {type(e).__name__}: {e}"
+        return sonuc
+
+    return {
+        "ytbsbilgi_teias": test_host("ytbsbilgi.teias.gov.tr"),
+        "seffaflik_epias_karsilastirma": test_host("seffaflik.epias.com.tr"),
+        "google_genel_internet_kontrolu": test_host("www.google.com"),
+    }
+
