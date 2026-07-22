@@ -708,6 +708,35 @@ function App() {
                 </p>
               </section>
             )}
+
+            {uretimHist.length > 0 && (
+              <section className="card">
+                <div className="card-h">
+                  <div>
+                    <h2 className="card-title">Yıllık Toplam Elektrik Üretimi</h2>
+                    <p className="card-sub">{uYearFrom}–{uYearTo} (GWh)</p>
+                  </div>
+                </div>
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={uretimView} margin={{ top: 8, right: 8, left: -4, bottom: 0 }}>
+                    <CartesianGrid stroke="#1E293B" vertical={false} />
+                    <XAxis dataKey="year" tick={{ fill: "#64748B", fontSize: 12 }}
+                           tickLine={false} axisLine={{ stroke: "#1E293B" }} />
+                    <YAxis tick={{ fill: "#64748B", fontSize: 11 }} tickLine={false}
+                           axisLine={false} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
+                    <Tooltip content={<ChartTooltip unit="GWh" />} />
+                    <Bar dataKey="toplam" name="Toplam Üretim" radius={[6, 6, 0, 0]}>
+                      {uretimView.map((row, i) => (
+                        <Cell key={i} fill={row.ay_sayisi === 12 ? "#38BDF8" : "#F97316"} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+                <p className="card-sub" style={{ marginTop: 10 }}>
+                  Turuncu çubuk, o yılın henüz tamamlanmamış (kısmi) verisini gösterir.
+                </p>
+              </section>
+            )}
           </>
         )}
       </main>
