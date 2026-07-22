@@ -25,6 +25,7 @@ from datetime import date
 from pathlib import Path
 
 import openpyxl
+import requests
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from eptr2 import EPTR2
@@ -253,14 +254,14 @@ _GOSTERGE_HESAP = {
     "PG 1.1.1": lambda kg, ur: kg.get("gunes", 0),
     "PG 1.1.2": lambda kg, ur: kg.get("ruzgar", 0),
     "PG 1.1.3": lambda kg, ur: kg.get("barajli", 0) + kg.get("akarsu", 0) + kg.get("jeotermal", 0) + kg.get("biyokutle", 0),
-    "PG 1.1.4": None,
+    "PG 1.1.4": lambda kg, ur: 0,  # nukleer kurulu guc - TEİAŞ verisinde ayri kolon yok, gerceklesen=0 kabul edilir
     "PG 1.1.5": lambda kg, ur: kg.get("dogalgaz", 0) + kg.get("linyit", 0) + kg.get("ithalKomur", 0) + kg.get("diger", 0),
     "PG 2.1.1": lambda kg, ur: round((ur["toplam"] - ur["dogalgaz"] - ur["ithalKomur"]) / 1000, 1),
     "PG 2.1.2": lambda kg, ur: round((ur["toplam"] - ur["dogalgaz"] - ur["ithalKomur"]) / ur["toplam"] * 100, 2),
     "PG 3.1.1": lambda kg, ur: round((ur["gunes"] + ur["ruzgar"] + ur["hidro"] + ur["jeotermal"] + ur["biyokutle"]) / ur["toplam"] * 100, 2),
     "PG 3.1.2": lambda kg, ur: round(ur["gunes"] / ur["toplam"] * 100, 2),
     "PG 3.1.3": lambda kg, ur: round(ur["ruzgar"] / ur["toplam"] * 100, 2),
-    "PG 3.1.4": None,
+    "PG 3.1.4": lambda kg, ur: 0,  # nukleer uretim payi - uretim verisinde ayri kolon yok, gerceklesen=0 kabul edilir
 }
 
 
@@ -343,6 +344,57 @@ def _hedefler_tamamlanma():
         })
 
     return {"gostergeler": out, "hedef_ozet": hedef_ozet}
+
+
+# ------------------------------------------------------------------
+#  EPDK ELEKTRIK URETIM LISANSI - SANTRAL HARITASI
+# ------------------------------------------------------------------
+EPDK_URETIM_URL = "https://apigateway.epdk.gov.tr/elektrikUretimLisansiSorgula"
+
+
+def _fetch_epdk_uretim_lisanslari():
+    try:
+        resp = requests.get(
+            EPDK_URETIM_URL,
+            json={"lisansDurumu": ["ONAYLANDI"]},
+            timeout=60,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"EPDK uretim lisanslari alinamadi: {e}")
+
+
+def _santral_harita_verisi():
+    """EPDK'daki onayli uretim lisanslarini il ve kaynak turune gore toplar."""
+    data = _fetch_epdk_uretim_lisanslari()
+    by_il = {}
+    kaynak_turleri = set()
+    for lisans in data:
+        for tesis in (lisans.get("uretimTesisi") or []):
+            adres = tesis.get("adres") or {}
+            il = adres.get("tesis_il") or lisans.get("il")
+            if not il:
+                continue
+            il = il.strip().upper()
+            tur = (tesis.get("tesisTuru") or "DIGER").strip().upper()
+            mw = tesis.get("kuruluGucMWe") or 0.0
+            entry = by_il.setdefault(il, {"toplam": 0.0, "kaynaklar": {}, "tesis_sayisi": 0})
+            entry["toplam"] += mw
+            entry["kaynaklar"][tur] = entry["kaynaklar"].get(tur, 0.0) + mw
+            entry["tesis_sayisi"] += 1
+            kaynak_turleri.add(tur)
+
+    for il, v in by_il.items():
+        v["toplam"] = round(v["toplam"], 1)
+        v["kaynaklar"] = {k: round(val, 1) for k, val in v["kaynaklar"].items()}
+
+    return {
+        "iller": by_il,
+        "kaynak_turleri": sorted(kaynak_turleri),
+        "toplam_tesis": sum(v["tesis_sayisi"] for v in by_il.values()),
+    }
 
 
 # ------------------------------------------------------------------
@@ -450,6 +502,11 @@ def fiyatlar(start: str | None = Query(None), end: str | None = Query(None)):
 @app.get("/api/hedefler")
 def hedefler():
     return cached("hedefler", 6 * 3600, _hedefler_tamamlanma)
+
+
+@app.get("/api/santral-harita")
+def santral_harita():
+    return cached("santral-harita", 24 * 3600, _santral_harita_verisi)
 
 
 @app.get("/health")

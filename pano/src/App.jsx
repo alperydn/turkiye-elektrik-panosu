@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
+import { TR_VIEWBOX, TR_PROVINCES } from "./trProvinces";
 import {
   ResponsiveContainer, AreaChart, Area, LineChart, Line,
   BarChart, Bar, PieChart, Pie, Cell,
@@ -144,24 +145,71 @@ function fmtHedef(n) {
   return n.toLocaleString("tr-TR", { maximumFractionDigits: 2 });
 }
 
+const TESIS_TUR_ADI = {
+  RUZGAR: "Rüzgar", GUNES: "Güneş", HES: "Hidroelektrik", BARAJ: "Barajlı Hidro",
+  AKARSU: "Akarsu Hidro", JES: "Jeotermal", JEOTERMAL: "Jeotermal",
+  DOGALGAZ: "Doğal Gaz", LNG: "LNG", KOMUR: "Kömür", LINYIT: "Linyit",
+  TASKOMURU: "Taş Kömürü", ITHAL_KOMUR: "İthal Kömür", BIYOKUTLE: "Biyokütle",
+  BIYOGAZ: "Biyogaz", FUELOIL: "Fuel Oil", ANA_KAYNAK: "Ana Kaynak", DIGER: "Diğer",
+};
+const tesisTurAdi = (k) => TESIS_TUR_ADI[k] || (k ? k.charAt(0) + k.slice(1).toLowerCase() : k);
+
+// Il ismi normalizasyonu: GeoJSON (Baslik Harf, Turkce) <-> EPDK (BUYUK HARF)
+const IL_ALIAS = { "AFYON": "AFYONKARAHİSAR" };
+const normIl = (s) => (s || "").toLocaleUpperCase("tr-TR").trim();
+const ilKarsilik = (geoAdi, illerObj) => {
+  const n = normIl(geoAdi);
+  if (illerObj[n]) return illerObj[n];
+  if (IL_ALIAS[n] && illerObj[IL_ALIAS[n]]) return illerObj[IL_ALIAS[n]];
+  const rev = Object.entries(IL_ALIAS).find(([, v]) => v === n);
+  if (rev && illerObj[rev[0]]) return illerObj[rev[0]];
+  return null;
+};
+
+function renkSkala(deger, maks) {
+  if (!deger || !maks) return "#1E293B";
+  const t = Math.min(1, deger / maks);
+  // koyu lacivertten parlak maviye
+  const r = Math.round(30 + t * (56 - 30));
+  const g = Math.round(41 + t * (189 - 41));
+  const b = Math.round(59 + t * (248 - 59));
+  return `rgb(${r},${g},${b})`;
+}
+
 /* ------------------------------------------------------------------ */
 function App() {
-  const [tab, setTab] = useState("genel");
+  const urlParams = useMemo(
+    () => (typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams()),
+    []
+  );
+  const urlHadYearRange = useRef(!!(urlParams.get("yf") || urlParams.get("yt")));
+  const urlHadUYearRange = useRef(!!(urlParams.get("uyf") || urlParams.get("uyt")));
+  const [copied, setCopied] = useState(false);
+
+  const [tab, setTab] = useState(urlParams.get("tab") || "genel");
   const [now, setNow] = useState(stamp());
   const [sources, setSources] = useState(DEMO_SOURCES);
   const [day, setDay] = useState(buildDemoDay);
   const [hist, setHist] = useState(DEMO_HIST);
-  const [histSel, setHistSel] = useState(HIST_SOURCES.map((s) => s.key));
+  const [histSel, setHistSel] = useState(
+    urlParams.get("hsel") ? urlParams.get("hsel").split(",") : HIST_SOURCES.map((s) => s.key)
+  );
   const [uretimHist, setUretimHist] = useState([]);
-  const [uretimSel, setUretimSel] = useState(HIST_SOURCES.map((s) => s.key));
-  const [uYearFrom, setUYearFrom] = useState(null);
-  const [uYearTo, setUYearTo] = useState(null);
-  const [uretimMode, setUretimMode] = useState("mutlak"); // "mutlak" | "yuzde"
-  const [yearFrom, setYearFrom] = useState(DEMO_HIST[0].year);
-  const [yearTo, setYearTo] = useState(DEMO_HIST[DEMO_HIST.length - 1].year);
+  const [uretimSel, setUretimSel] = useState(
+    urlParams.get("usel") ? urlParams.get("usel").split(",") : HIST_SOURCES.map((s) => s.key)
+  );
+  const [uYearFrom, setUYearFrom] = useState(urlParams.get("uyf") || null);
+  const [uYearTo, setUYearTo] = useState(urlParams.get("uyt") || null);
+  const [uretimMode, setUretimMode] = useState(urlParams.get("umode") || "mutlak"); // "mutlak" | "yuzde"
+  const [yearFrom, setYearFrom] = useState(urlParams.get("yf") || DEMO_HIST[0].year);
+  const [yearTo, setYearTo] = useState(urlParams.get("yt") || DEMO_HIST[DEMO_HIST.length - 1].year);
   const [live, setLive] = useState(false);
   const [fiyat, setFiyat] = useState([]);
+  const [weekFiyat, setWeekFiyat] = useState([]);
+  const [weekUretim, setWeekUretim] = useState([]);
   const [hedefler, setHedefler] = useState(null);
+  const [santral, setSantral] = useState(null);
+  const [haritaKaynak, setHaritaKaynak] = useState("TOPLAM");
   const [asOf, setAsOf] = useState("2025-12");
 
   useEffect(() => {
@@ -176,8 +224,16 @@ function App() {
     const j = (p) => fetch(`${API}${p}`, { signal: ac.signal }).then((r) => {
       if (!r.ok) throw new Error("HTTP " + r.status); return r.json();
     });
-    Promise.allSettled([j("/api/kurulu-guc"), j("/api/uretim"), j("/api/tarihsel"), j("/api/uretim-tarihsel"), j("/api/fiyatlar"), j("/api/hedefler")])
-      .then(([kg, ur, th, ut, fy, hd]) => {
+    const today = new Date();
+    const weekAgo = new Date(today); weekAgo.setDate(weekAgo.getDate() - 7);
+    const iso = (d) => d.toISOString().slice(0, 10);
+    Promise.allSettled([
+      j("/api/kurulu-guc"), j("/api/uretim"), j("/api/tarihsel"), j("/api/uretim-tarihsel"),
+      j("/api/fiyatlar"), j("/api/hedefler"), j("/api/santral-harita"),
+      j(`/api/fiyatlar?start=${iso(weekAgo)}&end=${iso(today)}`),
+      j(`/api/uretim?start=${iso(weekAgo)}&end=${iso(today)}`),
+    ])
+      .then(([kg, ur, th, ut, fy, hd, sh, wfy, wur]) => {
         let ok = false;
         if (kg.status === "fulfilled" && kg.value?.kaynaklar?.length) {
           setSources(kg.value.kaynaklar); setAsOf(kg.value.as_of || asOf); ok = true;
@@ -187,22 +243,35 @@ function App() {
         }
         if (th.status === "fulfilled" && Array.isArray(th.value) && th.value.length) {
           setHist(th.value);
-          setYearFrom(th.value[0].year);
-          setYearTo(th.value[th.value.length - 1].year);
+          if (!urlHadYearRange.current) {
+            setYearFrom(th.value[0].year);
+            setYearTo(th.value[th.value.length - 1].year);
+          }
         }
         if (ut.status === "fulfilled" && Array.isArray(ut.value) && ut.value.length) {
           setUretimHist(ut.value);
-          setUYearFrom(ut.value[0].year);
-          // varsayilan gorunum kismi yili degil, en son TAM yili (12 ay) esas alsin
-          const fullYears = ut.value.filter((r) => r.ay_sayisi === 12);
-          const lastDefault = fullYears.length ? fullYears[fullYears.length - 1] : ut.value[ut.value.length - 1];
-          setUYearTo(lastDefault.year);
+          if (!urlHadUYearRange.current) {
+            setUYearFrom(ut.value[0].year);
+            // varsayilan gorunum kismi yili degil, en son TAM yili (12 ay) esas alsin
+            const fullYears = ut.value.filter((r) => r.ay_sayisi === 12);
+            const lastDefault = fullYears.length ? fullYears[fullYears.length - 1] : ut.value[ut.value.length - 1];
+            setUYearTo(lastDefault.year);
+          }
         }
         if (fy.status === "fulfilled" && Array.isArray(fy.value) && fy.value.length) {
           setFiyat(fy.value);
         }
         if (hd.status === "fulfilled" && hd.value?.gostergeler?.length) {
           setHedefler(hd.value);
+        }
+        if (sh.status === "fulfilled" && sh.value?.iller) {
+          setSantral(sh.value);
+        }
+        if (wfy.status === "fulfilled" && Array.isArray(wfy.value) && wfy.value.length) {
+          setWeekFiyat(wfy.value);
+        }
+        if (wur.status === "fulfilled" && Array.isArray(wur.value) && wur.value.length) {
+          setWeekUretim(wur.value);
         }
         setLive(ok);
         if (!ok && typeof window !== "undefined" && window.showError) {
@@ -214,6 +283,29 @@ function App() {
       .finally(() => clearTimeout(to));
     return () => { clearTimeout(to); ac.abort(); };
   }, []);
+
+  // URL'yi mevcut secimlerle senkron tut (paylasilabilir baglanti)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const p = new URLSearchParams();
+    p.set("tab", tab);
+    if (yearFrom) p.set("yf", yearFrom);
+    if (yearTo) p.set("yt", yearTo);
+    if (histSel.length) p.set("hsel", histSel.join(","));
+    if (uYearFrom) p.set("uyf", uYearFrom);
+    if (uYearTo) p.set("uyt", uYearTo);
+    if (uretimSel.length) p.set("usel", uretimSel.join(","));
+    p.set("umode", uretimMode);
+    window.history.replaceState(null, "", `${window.location.pathname}?${p.toString()}`);
+  }, [tab, yearFrom, yearTo, histSel, uYearFrom, uYearTo, uretimSel, uretimMode]);
+
+  const kopyalaBaglanti = () => {
+    if (typeof window === "undefined") return;
+    navigator.clipboard.writeText(window.location.href).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
 
   const total = useMemo(() => sources.reduce((s, x) => s + x.mw, 0), [sources]);
   const renew = useMemo(
@@ -233,6 +325,98 @@ function App() {
   const uretim = cur.toplam;
   const tuketim = Math.round(uretim * 0.986);
   const sorted = useMemo(() => [...sources].sort((a, b) => b.mw - a.mw), [sources]);
+
+  const haritaIller = santral?.iller || {};
+  const haritaKaynaklari = santral?.kaynak_turleri || [];
+  const ilDegeri = (il) => {
+    const rec = ilKarsilik(il, haritaIller);
+    if (!rec) return 0;
+    return haritaKaynak === "TOPLAM" ? rec.toplam : (rec.kaynaklar[haritaKaynak] || 0);
+  };
+  const haritaMaks = useMemo(() => {
+    let m = 0;
+    TR_PROVINCES.forEach((p) => { m = Math.max(m, ilDegeri(p.name)); });
+    return m;
+  }, [santral, haritaKaynak]);
+  const topIller = useMemo(() => {
+    return TR_PROVINCES.map((p) => ({ name: p.name, deger: ilDegeri(p.name) }))
+      .filter((x) => x.deger > 0)
+      .sort((a, b) => b.deger - a.deger)
+      .slice(0, 10);
+  }, [santral, haritaKaynak]);
+
+  const insights = useMemo(() => {
+    const list = [];
+    if (fiyat.length && weekFiyat.length) {
+      const bugunOrt = fiyat.reduce((s, r) => s + r.ptf, 0) / fiyat.length;
+      const haftaOrt = weekFiyat.reduce((s, r) => s + r.ptf, 0) / weekFiyat.length;
+      if (haftaOrt > 0) {
+        const fark = ((bugunOrt - haftaOrt) / haftaOrt) * 100;
+        if (Math.abs(fark) >= 3) {
+          list.push({
+            renk: fark > 0 ? "#F97316" : "#84CC16",
+            metin: `Bugünün ortalama PTF'si (${fmt(bugunOrt)} TL/MWh), son 7 günün ortalamasına göre %${fmt(Math.abs(fark))} ${fark > 0 ? "daha yüksek" : "daha düşük"}.`,
+          });
+        }
+      }
+    }
+    if (day.length && weekUretim.length) {
+      const renewSum = (rows) => rows.reduce((s, r) => s + (r.gunes + r.ruzgar + r.barajli + r.akarsu + r.jeotermal + r.biyokutle), 0);
+      const totalSum = (rows) => rows.reduce((s, r) => s + r.toplam, 0);
+      const bugunPay = totalSum(day) ? (renewSum(day) / totalSum(day)) * 100 : null;
+      const haftaPay = totalSum(weekUretim) ? (renewSum(weekUretim) / totalSum(weekUretim)) * 100 : null;
+      if (bugunPay != null && haftaPay != null) {
+        const fark = bugunPay - haftaPay;
+        if (Math.abs(fark) >= 1) {
+          list.push({
+            renk: fark > 0 ? "#84CC16" : "#F97316",
+            metin: `Bugün yenilenebilir kaynakların üretimdeki payı %${fmt(bugunPay)}, haftalık ortalama olan %${fmt(haftaPay)}'${fark > 0 ? "in üzerinde" : "in altında"}.`,
+          });
+        }
+      }
+    }
+    const gunesMW = sources.find((s) => s.key === "gunes")?.mw;
+    if (gunesMW && day.length && weekUretim.length) {
+      const bugunKF = (day.reduce((s, r) => s + r.gunes, 0) / (gunesMW * day.length)) * 100;
+      const haftaKF = (weekUretim.reduce((s, r) => s + r.gunes, 0) / (gunesMW * weekUretim.length)) * 100;
+      const fark = bugunKF - haftaKF;
+      if (Math.abs(fark) >= 3) {
+        list.push({
+          renk: fark > 0 ? "#FBBF24" : "#94A3B8",
+          metin: `Güneş kapasite kullanım oranı bugün %${fmt(bugunKF)}, haftalık ortalama %${fmt(haftaKF)}'${fark > 0 ? "in üzerinde" : "in altında"}.`,
+        });
+      }
+    }
+    const ruzgarMW = sources.find((s) => s.key === "ruzgar")?.mw;
+    if (ruzgarMW && day.length && weekUretim.length) {
+      const bugunKF = (day.reduce((s, r) => s + r.ruzgar, 0) / (ruzgarMW * day.length)) * 100;
+      const haftaKF = (weekUretim.reduce((s, r) => s + r.ruzgar, 0) / (ruzgarMW * weekUretim.length)) * 100;
+      const fark = bugunKF - haftaKF;
+      if (Math.abs(fark) >= 5) {
+        list.push({
+          renk: fark > 0 ? "#2DD4BF" : "#94A3B8",
+          metin: `Rüzgar kapasite kullanım oranı bugün %${fmt(bugunKF)}, haftalık ortalama %${fmt(haftaKF)}'${fark > 0 ? "in üzerinde" : "in altında"}.`,
+        });
+      }
+    }
+    if (hedefler?.gostergeler?.length) {
+      const asanlar = hedefler.gostergeler.filter(
+        (g) => g.veri_var && g.hedef_donem_degeri != null && g.hedef_donem_degeri !== 0 && g.gerceklesen > g.hedef_donem_degeri
+      );
+      if (asanlar.length) {
+        const asilan = asanlar.sort(
+          (a, b) => (b.gerceklesen - b.hedef_donem_degeri) / Math.abs(b.hedef_donem_degeri) -
+                    (a.gerceklesen - a.hedef_donem_degeri) / Math.abs(a.hedef_donem_degeri)
+        )[0];
+        const fazlaPct = ((asilan.gerceklesen - asilan.hedef_donem_degeri) / Math.abs(asilan.hedef_donem_degeri)) * 100;
+        list.push({
+          renk: "#38BDF8",
+          metin: `${asilan.gosterge_adi}, ${asilan.hedef_donem_yili} hedefini şimdiden %${fmt(fazlaPct)} aşmış durumda (${fmtHedef(asilan.gerceklesen)} ${asilan.birim} / hedef ${fmtHedef(asilan.hedef_donem_degeri)} ${asilan.birim}).`,
+        });
+      }
+    }
+    return list;
+  }, [fiyat, weekFiyat, day, weekUretim, sources, hedefler]);
   const histYears = hist.map((h) => h.year);
   const histView = hist.filter((h) => h.year >= yearFrom && h.year <= yearTo);
   const uretimYears = uretimHist.map((h) => h.year);
@@ -248,7 +432,8 @@ function App() {
     : uretimView;
 
   const TABS = [["genel","Genel Bakış"],["kurulu","Kurulu Güç"],
-                ["uretim","Üretim"],["fiyat","Fiyatlar"],["hedef","Hedefler"],["tarih","Tarihsel"]];
+                ["uretim","Üretim"],["fiyat","Fiyatlar"],["hedef","Hedefler"],
+                ["harita","Santral Haritası"],["tarih","Tarihsel"]];
 
   return (
     <div className="root">
@@ -266,6 +451,9 @@ function App() {
             <span className={"live" + (live ? "" : " demo")}>
               <span className="live-dot" />{live ? "Canlı" : "Demo veri"}
             </span>
+            <button className="share-btn" onClick={kopyalaBaglanti}>
+              {copied ? "Kopyalandı ✓" : "Bağlantıyı Kopyala"}
+            </button>
             <span className="hd-stamp">{now}</span>
           </div>
         </div>
@@ -280,6 +468,23 @@ function App() {
       <main className="main">
         {tab === "genel" && (
           <>
+            {insights.length > 0 && (
+              <section className="card insight-card">
+                <div className="card-h">
+                  <h2 className="card-title">Bugünün Öne Çıkanları</h2>
+                  <span className="badge">Otomatik analiz</span>
+                </div>
+                <ul className="insight-list">
+                  {insights.map((ins, i) => (
+                    <li className="insight-item" key={i}>
+                      <span className="insight-dot" style={{ background: ins.renk }} />
+                      {ins.metin}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
             <section className="grid grid-4">
               <Kpi label="Toplam Kurulu Güç" value={fmt(total)} unit=" MW"
                    sub={`${sources.length} kaynak · ${asOf}`} accent="#38BDF8" />
@@ -642,8 +847,91 @@ function App() {
 
                 <p className="card-sub" style={{ padding: "0 4px" }}>
                   Kurulu güç göstergeleri {hedefler.gostergeler[0]?.donem} itibarıyla, üretim göstergeleri son tamamlanmış takvim yılı esas alınarak hesaplanmıştır.
-                  Nükleer enerjiye dair göstergeler, kullandığımız TEİAŞ/EPİAŞ verilerinde ayrı bir kalem olarak yer almadığından hesaplanamamaktadır.
+                  Nükleer enerjiye dair göstergeler, kullandığımız TEİAŞ/EPİAŞ verilerinde ayrı bir kalem olarak yer almadığından gerçekleşen değeri 0 kabul edilerek hesaplanmıştır.
                 </p>
+              </>
+            )}
+          </>
+        )}
+
+        {tab === "harita" && (
+          <>
+            {!santral ? (
+              <section className="card">
+                <div className="empty">Santral verisi yükleniyor ya da şu an mevcut değil.</div>
+              </section>
+            ) : (
+              <>
+                <section className="card">
+                  <div className="card-h">
+                    <div>
+                      <h2 className="card-title">Türkiye'de Kurulu Güç — İl Bazında</h2>
+                      <p className="card-sub">
+                        EPDK Elektrik Üretim Lisansı sicilinden — {santral.toplam_tesis} tesis, {haritaKaynaklari.length} kaynak türü
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="chips">
+                    <button className={"chip" + (haritaKaynak === "TOPLAM" ? " on" : "")}
+                            style={haritaKaynak === "TOPLAM" ? { borderColor: "#38BDF8", color: "#38BDF8" } : {}}
+                            onClick={() => setHaritaKaynak("TOPLAM")}>
+                      <span className="chip-dot" style={{ background: "#38BDF8" }} />
+                      Tümü
+                    </button>
+                    {haritaKaynaklari.map((k) => (
+                      <button key={k}
+                        className={"chip" + (haritaKaynak === k ? " on" : "")}
+                        style={haritaKaynak === k ? { borderColor: "#38BDF8", color: "#38BDF8" } : {}}
+                        onClick={() => setHaritaKaynak(k)}>
+                        <span className="chip-dot" style={{ background: "#38BDF8" }} />
+                        {tesisTurAdi(k)}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="harita-wrap">
+                    <svg viewBox={TR_VIEWBOX} className="harita-svg">
+                      {TR_PROVINCES.map((p) => {
+                        const deger = ilDegeri(p.name);
+                        return (
+                          <path key={p.name} d={p.path}
+                                fill={renkSkala(deger, haritaMaks)}
+                                stroke="#0A0F1C" strokeWidth="0.4">
+                            <title>{p.name}: {fmtHedef(deger)} MW</title>
+                          </path>
+                        );
+                      })}
+                    </svg>
+                    <div className="harita-legend">
+                      <span>0 MW</span>
+                      <div className="harita-legend-bar" />
+                      <span>{fmtHedef(haritaMaks)} MW</span>
+                    </div>
+                  </div>
+                  <p className="card-sub" style={{ marginTop: 8 }}>
+                    Üzerine gelerek il bazında MW değerini görebilirsin. Konum il düzeyindedir; kesin santral koordinatı gösterilmemektedir.
+                  </p>
+                </section>
+
+                <section className="card">
+                  <div className="card-h">
+                    <h2 className="card-title">En Yüksek Kurulu Güce Sahip 10 İl</h2>
+                    <span className="badge">{haritaKaynak === "TOPLAM" ? "Tüm kaynaklar" : tesisTurAdi(haritaKaynak)}</span>
+                  </div>
+                  <div className="bars">
+                    {topIller.map((r) => (
+                      <div className="bar-row" key={r.name}>
+                        <span className="bar-name">{r.name}</span>
+                        <div className="bar-track">
+                          <div className="bar-fill" style={{
+                            width: `${(r.deger / (topIller[0]?.deger || 1)) * 100}%`, background: "#38BDF8" }} />
+                        </div>
+                        <span className="bar-val">{fmtHedef(r.deger)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
               </>
             )}
           </>
@@ -878,6 +1166,15 @@ const CSS = `
 .live-dot{ width:7px; height:7px; border-radius:50%; background:currentColor; animation:pulse 2s infinite; }
 @keyframes pulse{ 0%{box-shadow:0 0 0 0 rgba(74,222,128,.5)} 70%{box-shadow:0 0 0 8px rgba(74,222,128,0)} 100%{box-shadow:0 0 0 0 rgba(74,222,128,0)} }
 .hd-stamp{ font-size:12px; color:var(--tx3); font-variant-numeric:tabular-nums; }
+.share-btn{ font-family:inherit; font-size:11px; font-weight:600; color:var(--tx2);
+  background:var(--panel2); border:1px solid var(--line); padding:5px 10px; border-radius:7px;
+  cursor:pointer; white-space:nowrap; }
+.share-btn:hover{ color:var(--tx); border-color:#38BDF8; }
+
+.insight-card{ background:linear-gradient(180deg,#111827,#0D1424); border-color:#1E3A5F; }
+.insight-list{ display:flex; flex-direction:column; gap:10px; margin:0; padding:0; list-style:none; }
+.insight-item{ display:flex; align-items:flex-start; gap:10px; font-size:13.5px; color:var(--tx); line-height:1.5; }
+.insight-dot{ width:8px; height:8px; border-radius:50%; margin-top:6px; flex-shrink:0; }
 .tabs{ max-width:1180px; margin:0 auto; padding:6px 16px 0; display:flex; gap:2px; }
 .tab{ background:transparent; border:none; color:var(--tx2); font-size:13.5px; font-weight:600; padding:11px 16px; cursor:pointer; border-bottom:2px solid transparent; font-family:inherit; }
 .tab:hover{ color:var(--tx); }
@@ -971,6 +1268,14 @@ const CSS = `
 .hedef-item-degerler b{ color:var(--tx); font-family:'JetBrains Mono',monospace; }
 .hedef-item-yuzde{ font-size:11.5px; color:var(--tx3); margin-top:6px; }
 .hedef-veriyok-row{ font-size:12.5px; color:var(--tx3); font-style:italic; }
+
+.harita-wrap{ display:flex; flex-direction:column; align-items:center; gap:10px; }
+.harita-svg{ width:100%; max-width:600px; height:auto; }
+.harita-svg path{ transition:opacity .15s ease; cursor:pointer; }
+.harita-svg path:hover{ opacity:0.75; stroke:#38BDF8; stroke-width:1; }
+.harita-legend{ display:flex; align-items:center; gap:10px; font-size:11.5px; color:var(--tx3); }
+.harita-legend-bar{ width:160px; height:8px; border-radius:4px;
+  background:linear-gradient(90deg, #1E293B, #38BDF8); }
 `;
 
 export default App;
