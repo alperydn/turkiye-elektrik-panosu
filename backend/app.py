@@ -156,7 +156,7 @@ def _kurulu_guc_from_ytbs_canli():
         "Referer": YTBS_URL,
     })
 
-    r1 = s.get(YTBS_URL, timeout=30)
+    r1 = s.get(YTBS_URL, timeout=8)
     vs1 = _ytbs_viewstate(r1.text)
 
     body_goster = {
@@ -167,7 +167,7 @@ def _kurulu_guc_from_ytbs_canli():
         "jakarta.faces.ViewState": vs1,
         "formdash:gunlukRapor": "",
     }
-    r2 = s.post(YTBS_URL, data=body_goster, timeout=30)
+    r2 = s.post(YTBS_URL, data=body_goster, timeout=8)
     vs2 = _ytbs_viewstate(r2.text)
 
     body_excel = {
@@ -179,7 +179,7 @@ def _kurulu_guc_from_ytbs_canli():
         "formdash:j_idt35.x": "5",
         "formdash:j_idt35.y": "5",
     }
-    r3 = s.post(YTBS_URL, data=body_excel, timeout=30)
+    r3 = s.post(YTBS_URL, data=body_excel, timeout=8)
     ct = r3.headers.get("Content-Type", "")
     is_excel = "spreadsheet" in ct or "excel" in ct or "octet-stream" in ct or r3.headers.get("Content-Disposition")
     if not is_excel:
@@ -234,20 +234,15 @@ def _kurulu_guc_guncel():
     """Once canli YTBS gunluk veriyi dener; olmazsa statik aylik TEIAS
     dosyasina geri doner. Boylece site hicbir zaman bozulmaz.
 
-    GECICI: yedek (fallback) su an KAPALI - hata ayiklama icin gercek
-    YTBS hatasi HTTP yanitinda gorunecek sekilde firlatiliyor. Geri
-    acmak icin asagidaki try/except blogunu eski haline getir."""
+    NOT: Render'in sunucusundan ytbsbilgi.teias.gov.tr'ye baglanti
+    ConnectTimeoutError ile basarisiz oluyor (muhtemelen TEIAS,
+    yurt disi/bulut IP araliklarini engelliyor). Bu yuzden yedek
+    mekanizma surekli acik tutuluyor; canli YTBS sadece bu engel
+    kalkarsa (ya da baska bir ortamdan calistirilirsa) devreye girer."""
     try:
         return _kurulu_guc_from_ytbs_canli()
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"YTBS canli veri basarisiz: {e}")
-    # --- eski (yedekli) hali, geri acmak icin yukaridaki try/except yerine kullan ---
-    # try:
-    #     return _kurulu_guc_from_ytbs_canli()
-    # except Exception:
-    #     return _kurulu_guc_from_teias()
+    except Exception:
+        return _kurulu_guc_from_teias()
 
 
 def _tarihsel_uretim_from_teias():
