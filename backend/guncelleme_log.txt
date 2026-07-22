@@ -1,0 +1,40 @@
+============================================== 
+€ar 22.07.2026 23:12:09,24 - Baslatildi 
+1) YTBS'den Excel cekiliyor...
+
+HATA: HTTPSConnectionPool(host='ytbsbilgi.teias.gov.tr', port=443): Max retries exceeded with url: /ytbsbilgi/frm_istatistikler.jsf (Caused by SSLError(SSLError(1, '[SSL: RECORD_LAYER_FAILURE] record layer failure (_ssl.c:1082)')))
+€ar 22.07.2026 23:12:12,22 - HATA: python scripti basarisiz oldu, push yapilmiyor 
+============================================== 
+€ar 22.07.2026 23:16:01,89 - Baslatildi 
+C:\Users\alper\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\openpyxl\styles\stylesheet.py:237: UserWarning: Workbook contains no default style, apply openpyxl's default
+  warn("Workbook contains no default style, apply openpyxl's default")
+1) YTBS'den Excel cekiliyor...
+   Alindi (3406760 byte)
+2) Ayristiriliyor...
+   as_of: 21.07.2026 (YTBS günlük)
+   Güneþ: 27257 MW
+   Doðal Gaz: 24778 MW
+   Barajlý Hidro: 23868 MW
+   Rüzgar: 15311 MW
+   Yerli Kömür: 11560 MW
+   Ýthal Kömür: 10466 MW
+   Akarsu Hidro: 8446 MW
+   Biyokütle: 2168 MW
+   Jeotermal: 1798 MW
+   Fuel Oil / Diðer: 505 MW
+3) Kaydediliyor -> C:\Users\alper\OneDrive\Masaüstü\WEB Sitesi Çalýþma\turkiye-elektrik-panosu\backend\kurulu_guc_guncel.json
+
+BASARILI. Simdi GitHub Desktop'ta bu dosyayi commit + push et:
+   kurulu_guc_guncel.json
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	guncelleme_log.txt
+	ytbs_guncelle_ve_gonder.bat
+
+nothing added to commit but untracked files present (use "git add" to track)
+Everything up-to-date
+€ar 22.07.2026 23:16:37,84 - Tamamlandi 
+ 
