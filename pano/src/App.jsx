@@ -128,6 +128,22 @@ function Kpi({ label, value, unit, sub, accent }) {
   );
 }
 
+function HedefBar({ pct }) {
+  if (pct === null || pct === undefined) return null;
+  const clamped = Math.max(0, Math.min(100, pct));
+  const color = pct >= 100 ? "#84CC16" : pct >= 50 ? "#38BDF8" : pct >= 0 ? "#FBBF24" : "#F87171";
+  return (
+    <div className="hedef-bar-track">
+      <div className="hedef-bar-fill" style={{ width: `${clamped}%`, background: color }} />
+    </div>
+  );
+}
+
+function fmtHedef(n) {
+  if (n === null || n === undefined) return "—";
+  return n.toLocaleString("tr-TR", { maximumFractionDigits: 2 });
+}
+
 /* ------------------------------------------------------------------ */
 function App() {
   const [tab, setTab] = useState("genel");
@@ -145,6 +161,7 @@ function App() {
   const [yearTo, setYearTo] = useState(DEMO_HIST[DEMO_HIST.length - 1].year);
   const [live, setLive] = useState(false);
   const [fiyat, setFiyat] = useState([]);
+  const [hedefler, setHedefler] = useState(null);
   const [asOf, setAsOf] = useState("2025-12");
 
   useEffect(() => {
@@ -159,8 +176,8 @@ function App() {
     const j = (p) => fetch(`${API}${p}`, { signal: ac.signal }).then((r) => {
       if (!r.ok) throw new Error("HTTP " + r.status); return r.json();
     });
-    Promise.allSettled([j("/api/kurulu-guc"), j("/api/uretim"), j("/api/tarihsel"), j("/api/uretim-tarihsel"), j("/api/fiyatlar")])
-      .then(([kg, ur, th, ut, fy]) => {
+    Promise.allSettled([j("/api/kurulu-guc"), j("/api/uretim"), j("/api/tarihsel"), j("/api/uretim-tarihsel"), j("/api/fiyatlar"), j("/api/hedefler")])
+      .then(([kg, ur, th, ut, fy, hd]) => {
         let ok = false;
         if (kg.status === "fulfilled" && kg.value?.kaynaklar?.length) {
           setSources(kg.value.kaynaklar); setAsOf(kg.value.as_of || asOf); ok = true;
@@ -184,9 +201,12 @@ function App() {
         if (fy.status === "fulfilled" && Array.isArray(fy.value) && fy.value.length) {
           setFiyat(fy.value);
         }
+        if (hd.status === "fulfilled" && hd.value?.gostergeler?.length) {
+          setHedefler(hd.value);
+        }
         setLive(ok);
         if (!ok && typeof window !== "undefined" && window.showError) {
-          const errs = [kg, ur, th, ut, fy].filter((x) => x.status === "rejected")
+          const errs = [kg, ur, th, ut, fy, hd].filter((x) => x.status === "rejected")
             .map((x) => String((x.reason && x.reason.message) || x.reason)).join(" | ");
           window.showError("Backend'e baglanilamadi (" + API + "): " + (errs || "bilinmeyen sebep"));
         }
@@ -228,7 +248,7 @@ function App() {
     : uretimView;
 
   const TABS = [["genel","Genel Bakış"],["kurulu","Kurulu Güç"],
-                ["uretim","Üretim"],["fiyat","Fiyatlar"],["tarih","Tarihsel"]];
+                ["uretim","Üretim"],["fiyat","Fiyatlar"],["hedef","Hedefler"],["tarih","Tarihsel"]];
 
   return (
     <div className="root">
@@ -539,6 +559,96 @@ function App() {
           </>
         )}
 
+        {tab === "hedef" && (
+          <>
+            {!hedefler ? (
+              <section className="card">
+                <div className="empty">Hedef verisi yükleniyor ya da şu an mevcut değil.</div>
+              </section>
+            ) : (
+              <>
+                <section className="card">
+                  <div className="card-h">
+                    <div>
+                      <h2 className="card-title">ETKB 2024–2028 Stratejik Planı — Hedef Tamamlanma Durumu</h2>
+                      <p className="card-sub">
+                        Enerji ve Tabii Kaynaklar Bakanlığı stratejik plan hedefleri, gerçek EPİAŞ/TEİAŞ verileriyle karşılaştırılmıştır.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-3">
+                    {hedefler.hedef_ozet.map((h) => (
+                      <div className="hedef-ozet-card" key={h.hedef_kodu}>
+                        <div className="hedef-ozet-kod">{h.hedef_kodu}</div>
+                        <div className="hedef-ozet-metin">{h.hedef_metni}</div>
+                        {h.tamamlanma_yuzde === null ? (
+                          <div className="hedef-ozet-veriyok">Yeterli veri yok</div>
+                        ) : (
+                          <>
+                            <div className="hedef-ozet-yuzde">%{fmtHedef(h.tamamlanma_yuzde)}</div>
+                            <HedefBar pct={h.tamamlanma_yuzde} />
+                            <div className="hedef-ozet-alt">
+                              {h.veri_olan_sayisi}/{h.gosterge_sayisi} gösterge ile hesaplandı
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                {["Hedef (H1.1)", "Hedef (H2.1)", "Hedef (H3.1)"].map((hkod) => {
+                  const items = hedefler.gostergeler.filter((g) => g.hedef_kodu === hkod);
+                  if (!items.length) return null;
+                  return (
+                    <section className="card" key={hkod}>
+                      <div className="card-h">
+                        <div>
+                          <h2 className="card-title">{hkod}</h2>
+                          <p className="card-sub">{items[0].hedef_metni}</p>
+                        </div>
+                      </div>
+                      <div className="hedef-list">
+                        {items.map((g) => (
+                          <div className="hedef-item" key={g.gosterge_kodu}>
+                            <div className="hedef-item-h">
+                              <span className="hedef-item-kod">{g.gosterge_kodu}</span>
+                              <span className="hedef-item-ad">{g.gosterge_adi}</span>
+                            </div>
+                            {!g.veri_var ? (
+                              <div className="hedef-veriyok-row">
+                                Bu gösterge için elimizde gerçekleşme verisi bulunmuyor.
+                              </div>
+                            ) : (
+                              <>
+                                <div className="hedef-item-degerler">
+                                  <span>Başlangıç (2024): <b>{fmtHedef(g.baseline)} {g.birim}</b></span>
+                                  <span>Gerçekleşen ({g.donem}): <b>{fmtHedef(g.gerceklesen)} {g.birim}</b></span>
+                                  <span>{g.hedef_donem_yili} Hedefi: <b>{fmtHedef(g.hedef_donem_degeri)} {g.birim}</b></span>
+                                  <span>2028 Nihai Hedef: <b>{fmtHedef(g.hedef_2028)} {g.birim}</b></span>
+                                </div>
+                                <HedefBar pct={g.tamamlanma_yuzde} />
+                                <div className="hedef-item-yuzde">
+                                  %{fmtHedef(g.tamamlanma_yuzde)} — 2024 başlangıcından 2028 nihai hedefine kadarki yolun tamamlanan kısmı
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  );
+                })}
+
+                <p className="card-sub" style={{ padding: "0 4px" }}>
+                  Kurulu güç göstergeleri {hedefler.gostergeler[0]?.donem} itibarıyla, üretim göstergeleri son tamamlanmış takvim yılı esas alınarak hesaplanmıştır.
+                  Nükleer enerjiye dair göstergeler, kullandığımız TEİAŞ/EPİAŞ verilerinde ayrı bir kalem olarak yer almadığından hesaplanamamaktadır.
+                </p>
+              </>
+            )}
+          </>
+        )}
+
         {tab === "tarih" && (
           <>
             <section className="card">
@@ -775,7 +885,9 @@ const CSS = `
 .main{ max-width:1180px; margin:0 auto; padding:22px 24px 8px; }
 .grid{ display:grid; gap:16px; margin-bottom:16px; }
 .grid-4{ grid-template-columns:repeat(4,1fr); }
+.grid-3{ grid-template-columns:repeat(3,1fr); }
 .grid-2{ grid-template-columns:repeat(2,1fr); }
+@media(max-width:820px){ .grid-3{grid-template-columns:1fr} }
 @media(max-width:820px){ .grid-4{grid-template-columns:repeat(2,1fr)} .grid-2{grid-template-columns:1fr} }
 @media(max-width:520px){ .grid-4{grid-template-columns:1fr} }
 .kpi{ background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px 16px 14px; position:relative; overflow:hidden; }
@@ -840,6 +952,25 @@ const CSS = `
 .chip-btn.active{ color:#38BDF8; border-color:#38BDF8; background:rgba(56,189,248,.1); }
 .empty{ text-align:center; color:var(--tx3); font-size:13px; padding:60px 0; }
 .ft{ max-width:1180px; margin:0 auto; padding:16px 24px 30px; font-size:11.5px; color:var(--tx3); }
+
+/* HEDEFLER */
+.hedef-ozet-card{ background:var(--panel2); border:1px solid var(--line); border-radius:12px; padding:16px; }
+.hedef-ozet-kod{ font-size:11px; font-weight:700; color:#38BDF8; text-transform:uppercase; letter-spacing:.05em; }
+.hedef-ozet-metin{ font-size:13px; color:var(--tx); margin:6px 0 12px; line-height:1.4; }
+.hedef-ozet-yuzde{ font-size:24px; font-weight:800; margin-bottom:8px; }
+.hedef-ozet-alt{ font-size:11px; color:var(--tx3); margin-top:6px; }
+.hedef-ozet-veriyok{ font-size:12.5px; color:var(--tx3); font-style:italic; padding:8px 0; }
+.hedef-bar-track{ height:8px; background:var(--panel); border-radius:5px; overflow:hidden; }
+.hedef-bar-fill{ height:100%; border-radius:5px; transition:width .5s ease; }
+.hedef-list{ display:flex; flex-direction:column; gap:16px; }
+.hedef-item{ padding:14px; background:var(--panel2); border:1px solid var(--line); border-radius:12px; }
+.hedef-item-h{ display:flex; align-items:baseline; gap:8px; margin-bottom:10px; flex-wrap:wrap; }
+.hedef-item-kod{ font-size:11px; font-weight:700; color:#38BDF8; }
+.hedef-item-ad{ font-size:13px; font-weight:600; color:var(--tx); }
+.hedef-item-degerler{ display:flex; flex-wrap:wrap; gap:6px 18px; font-size:12px; color:var(--tx2); margin-bottom:10px; }
+.hedef-item-degerler b{ color:var(--tx); font-family:'JetBrains Mono',monospace; }
+.hedef-item-yuzde{ font-size:11.5px; color:var(--tx3); margin-top:6px; }
+.hedef-veriyok-row{ font-size:12.5px; color:var(--tx3); font-style:italic; }
 `;
 
 export default App;

@@ -52,6 +52,7 @@ app.add_middleware(
 # ------------------------------------------------------------------
 XLSX_PATH = Path(__file__).parent / "kurulu_guc_teias.xlsx"
 URETIM_XLSX_PATH = Path(__file__).parent / "uretim_tarihsel_teias.xlsx"
+HEDEF_XLSX_PATH = Path(__file__).parent / "hedefler_etkb.xlsx"
 
 # Panonun kaynak anahtarlarina renk + yenilenebilir bilgisi
 SOURCE_META = {
@@ -208,6 +209,143 @@ def _tarihsel_from_teias():
 
 
 # ------------------------------------------------------------------
+#  ETKB 2024-2028 STRATEJIK PLANI - PERFORMANS GOSTERGELERI
+# ------------------------------------------------------------------
+def _read_hedef_rows():
+    """'hedefler_etkb.xlsx' -> Amac/Hedef/Gosterge hiyerarsisiyle satirlar."""
+    if not HEDEF_XLSX_PATH.exists():
+        raise HTTPException(
+            status_code=500,
+            detail=f"Hedefler Excel dosyasi bulunamadi: {HEDEF_XLSX_PATH.name}.",
+        )
+    wb = openpyxl.load_workbook(HEDEF_XLSX_PATH, data_only=True)
+    ws = wb["Tüm Amaç ve Göstergeler"]
+    rows = list(ws.iter_rows(values_only=True))
+
+    amac_kodu = amac_adi = hedef_kodu = hedef_adi = None
+    out = []
+    for r in rows:
+        if not r or r[0] is None:
+            continue
+        first = str(r[0]).strip()
+        if first.startswith("Amaç"):
+            amac_kodu, amac_adi = first, r[1]
+        elif first.startswith("Hedef"):
+            hedef_kodu, hedef_adi = first, r[1]
+        elif first.startswith("PG "):
+            out.append({
+                "gosterge_kodu": first,
+                "gosterge_adi": r[1],
+                "agirlik": float(r[2]) if r[2] is not None else None,
+                "baseline": float(r[3]) if r[3] is not None else None,
+                "2024": float(r[4]) if r[4] is not None else None,
+                "2025": float(r[5]) if r[5] is not None else None,
+                "2026": float(r[6]) if r[6] is not None else None,
+                "2027": float(r[7]) if r[7] is not None else None,
+                "2028": float(r[8]) if r[8] is not None else None,
+                "amac_kodu": amac_kodu, "amac_adi": amac_adi,
+                "hedef_kodu": hedef_kodu, "hedef_adi": hedef_adi,
+            })
+    return out
+
+
+_GOSTERGE_HESAP = {
+    "PG 1.1.1": lambda kg, ur: kg.get("gunes", 0),
+    "PG 1.1.2": lambda kg, ur: kg.get("ruzgar", 0),
+    "PG 1.1.3": lambda kg, ur: kg.get("barajli", 0) + kg.get("akarsu", 0) + kg.get("jeotermal", 0) + kg.get("biyokutle", 0),
+    "PG 1.1.4": None,
+    "PG 1.1.5": lambda kg, ur: kg.get("dogalgaz", 0) + kg.get("linyit", 0) + kg.get("ithalKomur", 0) + kg.get("diger", 0),
+    "PG 2.1.1": lambda kg, ur: round((ur["toplam"] - ur["dogalgaz"] - ur["ithalKomur"]) / 1000, 1),
+    "PG 2.1.2": lambda kg, ur: round((ur["toplam"] - ur["dogalgaz"] - ur["ithalKomur"]) / ur["toplam"] * 100, 2),
+    "PG 3.1.1": lambda kg, ur: round((ur["gunes"] + ur["ruzgar"] + ur["hidro"] + ur["jeotermal"] + ur["biyokutle"]) / ur["toplam"] * 100, 2),
+    "PG 3.1.2": lambda kg, ur: round(ur["gunes"] / ur["toplam"] * 100, 2),
+    "PG 3.1.3": lambda kg, ur: round(ur["ruzgar"] / ur["toplam"] * 100, 2),
+    "PG 3.1.4": None,
+}
+
+
+def _hedefler_tamamlanma():
+    rows = _read_hedef_rows()
+    kg_list = _kurulu_guc_from_teias()
+    kg_map = {k["key"]: k["mw"] for k in kg_list["kaynaklar"]}
+    kg_asof = kg_list["as_of"]
+
+    ur_all = _tarihsel_uretim_from_teias()
+    full_years = [r for r in ur_all if r.get("ay_sayisi") == 12]
+    ur_row = full_years[-1] if full_years else (ur_all[-1] if ur_all else None)
+    ur_year = ur_row["year"] if ur_row else None
+
+    out = []
+    for r in rows:
+        code = r["gosterge_kodu"]
+        is_capacity = code.startswith("PG 1.1")
+        is_pct = "(%)" in (r["gosterge_adi"] or "")
+        calc = _GOSTERGE_HESAP.get(code)
+
+        deger = None
+        if calc is not None and (kg_map if is_capacity else ur_row):
+            try:
+                deger = calc(kg_map, ur_row)
+            except Exception:
+                deger = None
+        veri_var = deger is not None
+
+        if is_capacity:
+            donem, hedef_yil = kg_asof, "2026"
+        else:
+            donem = ur_year
+            hedef_yil = ur_year if ur_year in ("2024", "2025", "2026", "2027", "2028") else "2025"
+
+        baseline, hedef_deger, hedef_2028 = r.get("baseline"), r.get(hedef_yil), r.get("2028")
+        if is_pct:
+            baseline = round(baseline * 100, 2) if baseline is not None else None
+            hedef_deger = round(hedef_deger * 100, 2) if hedef_deger is not None else None
+            hedef_2028 = round(hedef_2028 * 100, 2) if hedef_2028 is not None else None
+
+        tamamlanma = None
+        if veri_var and baseline is not None and hedef_2028 is not None and hedef_2028 != baseline:
+            tamamlanma = round((deger - baseline) / (hedef_2028 - baseline) * 100, 1)
+
+        out.append({
+            "gosterge_kodu": code,
+            "gosterge_adi": r["gosterge_adi"],
+            "amac_kodu": r["amac_kodu"], "amac_adi": r["amac_adi"],
+            "hedef_kodu": r["hedef_kodu"], "hedef_metni": r["hedef_adi"],
+            "agirlik": r["agirlik"],
+            "birim": "%" if is_pct else ("milyar kWh/yıl" if code == "PG 2.1.1" else "MW"),
+            "baseline": baseline,
+            "donem": donem,
+            "gerceklesen": round(deger, 2) if veri_var else None,
+            "hedef_donem_yili": hedef_yil,
+            "hedef_donem_degeri": hedef_deger,
+            "hedef_2028": hedef_2028,
+            "tamamlanma_yuzde": tamamlanma,
+            "veri_var": veri_var,
+        })
+
+    by_hedef = {}
+    for it in out:
+        g = by_hedef.setdefault(it["hedef_kodu"], {"metin": it["hedef_metni"], "items": []})
+        g["items"].append(it)
+    hedef_ozet = []
+    for hkod, info in by_hedef.items():
+        var_olanlar = [it for it in info["items"] if it["tamamlanma_yuzde"] is not None]
+        skor = None
+        if var_olanlar:
+            wsum = sum(it["agirlik"] for it in var_olanlar)
+            if wsum:
+                skor = round(sum(it["agirlik"] * it["tamamlanma_yuzde"] for it in var_olanlar) / wsum, 1)
+        hedef_ozet.append({
+            "hedef_kodu": hkod, "hedef_metni": info["metin"],
+            "tamamlanma_yuzde": skor,
+            "gosterge_sayisi": len(info["items"]),
+            "veri_olan_sayisi": len(var_olanlar),
+        })
+
+    return {"gostergeler": out, "hedef_ozet": hedef_ozet}
+
+
+# ------------------------------------------------------------------
 #  rt-gen kolonlarini panonun kaynaklarina eslestirme (canli uretim)
 # ------------------------------------------------------------------
 def _to_panel(row):
@@ -307,6 +445,11 @@ def fiyatlar(start: str | None = Query(None), end: str | None = Query(None)):
     end = end or date.today().isoformat()
     start = start or end
     return cached(f"fiyatlar:{start}:{end}", 900, lambda: _fiyatlar(start, end))
+
+
+@app.get("/api/hedefler")
+def hedefler():
+    return cached("hedefler", 6 * 3600, _hedefler_tamamlanma)
 
 
 @app.get("/health")
