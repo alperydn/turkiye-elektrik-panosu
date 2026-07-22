@@ -1,0 +1,75 @@
+{
+  "as_of": "21.07.2026 (YTBS günlük)",
+  "kaynaklar": [
+    {
+      "key": "gunes",
+      "name": "Güneş",
+      "mw": 27257,
+      "color": "#FBBF24",
+      "renewable": true
+    },
+    {
+      "key": "dogalgaz",
+      "name": "Doğal Gaz",
+      "mw": 24778,
+      "color": "#F97316",
+      "renewable": false
+    },
+    {
+      "key": "barajli",
+      "name": "Barajlı Hidro",
+      "mw": 23868,
+      "color": "#3B82F6",
+      "renewable": true
+    },
+    {
+      "key": "ruzgar",
+      "name": "Rüzgar",
+      "mw": 15311,
+      "color": "#2DD4BF",
+      "renewable": true
+    },
+    {
+      "key": "linyit",
+      "name": "Yerli Kömür",
+      "mw": 11560,
+      "color": "#B45309",
+      "renewable": false
+    },
+    {
+      "key": "ithalKomur",
+      "name": "İthal Kömür",
+      "mw": 10466,
+      "color": "#64748B",
+      "renewable": false
+    },
+    {
+      "key": "akarsu",
+      "name": "Akarsu Hidro",
+      "mw": 8446,
+      "color": "#38BDF8",
+      "renewable": true
+    },
+    {
+      "key": "biyokutle",
+      "name": "Biyokütle",
+      "mw": 2168,
+      "color": "#84CC16",
+      "renewable": true
+    },
+    {
+      "key": "jeotermal",
+      "name": "Jeotermal",
+      "mw": 1798,
+      "color": "#EC4899",
+      "renewable": true
+    },
+    {
+      "key": "diger",
+      "name": "Fuel Oil / Diğer",
+      "mw": 505,
+      "color": "#94A3B8",
+      "renewable": false
+    }
+  ]
+}
