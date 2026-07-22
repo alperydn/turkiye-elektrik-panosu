@@ -615,7 +615,10 @@ function App() {
             <section className="grid grid-2">
               <div className="card">
                 <div className="card-h">
-                  <h2 className="card-title">Kurulu Güç Dağılımı</h2>
+                  <div>
+                    <h2 className="card-title">Kurulu Güç Dağılımı</h2>
+                    <p className="card-sub">{asOf} itibarıyla</p>
+                  </div>
                   <span className="badge">{fmt(total)} MW</span>
                 </div>
                 <ResponsiveContainer width="100%" height={300}>
