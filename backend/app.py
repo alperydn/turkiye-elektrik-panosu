@@ -21,6 +21,7 @@ Calistirma:
 
 import os
 import time
+import json
 from datetime import date
 from pathlib import Path
 
@@ -54,6 +55,7 @@ app.add_middleware(
 XLSX_PATH = Path(__file__).parent / "kurulu_guc_teias.xlsx"
 URETIM_XLSX_PATH = Path(__file__).parent / "uretim_tarihsel_teias.xlsx"
 HEDEF_XLSX_PATH = Path(__file__).parent / "hedefler_etkb.xlsx"
+YTBS_GUNCEL_JSON_PATH = Path(__file__).parent / "kurulu_guc_guncel.json"
 
 # Panonun kaynak anahtarlarina renk + yenilenebilir bilgisi
 SOURCE_META = {
@@ -126,6 +128,22 @@ def _kurulu_guc_from_teias():
             "renewable": meta["renewable"],
         })
     return {"as_of": last["period"], "kaynaklar": kaynaklar}
+
+
+def _kurulu_guc_guncel():
+    """Once 'kurulu_guc_guncel.json' dosyasina (YTBS'den elle/scriptle
+    guncellenen, repoya commit edilen anlik veri) bakar. Dosya yoksa ya
+    da bozuksa, sessizce aylik TEIAS Excel'ine (_kurulu_guc_from_teias)
+    geri doner - site hicbir zaman bozulmaz."""
+    try:
+        if YTBS_GUNCEL_JSON_PATH.exists():
+            with open(YTBS_GUNCEL_JSON_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if "kaynaklar" in data and "as_of" in data:
+                return data
+    except Exception:
+        pass
+    return _kurulu_guc_from_teias()
 
 
 def _tarihsel_uretim_from_teias():
@@ -472,7 +490,7 @@ def _rt_gen(start, end):
 @app.get("/api/kurulu-guc")
 def kurulu_guc():
     # TEİAŞ Excel'i pek sik degismiyor (ayda bir); 6 saat onbellek yeterli.
-    return cached("kurulu-guc", 6 * 3600, _kurulu_guc_from_teias)
+    return cached("kurulu-guc", 6 * 3600, _kurulu_guc_guncel)
 
 
 @app.get("/api/tarihsel")
