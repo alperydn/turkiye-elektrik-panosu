@@ -22,7 +22,7 @@ Calistirma:
 import os
 import time
 import json
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import openpyxl
@@ -416,6 +416,71 @@ def _santral_harita_verisi():
 
 
 # ------------------------------------------------------------------
+#  BARAJ DOLULUK ORANLARI (EPİAŞ: dams-info + dams-active-fullness)
+# ------------------------------------------------------------------
+def _baraj_doluluk_verisi():
+    d = (date.today() - timedelta(days=1)).isoformat()
+
+    try:
+        info_res = eptr.call("dams-info")
+        full_res = eptr.call("dams-active-fullness", start_date=d, end_date=d)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"EPİAŞ baraj verisi alinamadi: {e}")
+
+    info_rows = info_res.to_dict(orient="records") if hasattr(info_res, "to_dict") else info_res
+    full_rows = full_res.to_dict(orient="records") if hasattr(full_res, "to_dict") else full_res
+    info_by_id = {r["id"]: r for r in info_rows}
+
+    barajlar = []
+    for r in full_rows:
+        info = info_by_id.get(r.get("damId"), {})
+        ip = info.get("installedPower")
+        barajlar.append({
+            "damId": r.get("damId"),
+            "damName": r.get("dam") or info.get("damName"),
+            "basin": r.get("basin") or info.get("basinName"),
+            "cityName": (info.get("cityName") or "").strip().upper() or None,
+            "installedPower": ip if ip == ip else None,  # NaN kontrolu
+            "fullnessPct": round(r.get("activeFullnessAmount") or 0, 1),
+        })
+
+    def agirlikli_ortalama(grup_anahtari):
+        gruplar = {}
+        for b in barajlar:
+            k = b.get(grup_anahtari)
+            if not k:
+                continue
+            w = b["installedPower"] if b["installedPower"] else 1.0
+            g = gruplar.setdefault(k, {"agirlik": 0.0, "toplam": 0.0, "baraj_sayisi": 0})
+            g["agirlik"] += w
+            g["toplam"] += w * b["fullnessPct"]
+            g["baraj_sayisi"] += 1
+        return {
+            k: {"doluluk": round(v["toplam"] / v["agirlik"], 1), "baraj_sayisi": v["baraj_sayisi"]}
+            for k, v in gruplar.items()
+        }
+
+    iller = agirlikli_ortalama("cityName")
+    havza_map = agirlikli_ortalama("basin")
+    havzalar = sorted(
+        [{"havza": k, **v} for k, v in havza_map.items()],
+        key=lambda x: -x["doluluk"],
+    )
+
+    ulusal_ort = round(sum(b["fullnessPct"] for b in barajlar) / len(barajlar), 1) if barajlar else None
+    tarih = full_rows[0]["date"][:10] if full_rows else d
+
+    return {
+        "as_of": tarih,
+        "ulusal_ortalama": ulusal_ort,
+        "baraj_sayisi": len(barajlar),
+        "iller": iller,
+        "havzalar": havzalar,
+        "en_dusuk_barajlar": sorted(barajlar, key=lambda x: x["fullnessPct"])[:10],
+    }
+
+
+# ------------------------------------------------------------------
 #  rt-gen kolonlarini panonun kaynaklarina eslestirme (canli uretim)
 # ------------------------------------------------------------------
 def _to_panel(row):
@@ -525,6 +590,11 @@ def hedefler():
 @app.get("/api/santral-harita")
 def santral_harita():
     return cached("santral-harita", 24 * 3600, _santral_harita_verisi)
+
+
+@app.get("/api/baraj-doluluk")
+def baraj_doluluk():
+    return cached("baraj-doluluk", 6 * 3600, _baraj_doluluk_verisi)
 
 
 @app.get("/health")

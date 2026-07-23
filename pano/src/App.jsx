@@ -145,17 +145,8 @@ function fmtHedef(n) {
   return n.toLocaleString("tr-TR", { maximumFractionDigits: 2 });
 }
 
-const TESIS_TUR_ADI = {
-  RUZGAR: "Rüzgar", GUNES: "Güneş", HES: "Hidroelektrik", BARAJ: "Barajlı Hidro",
-  AKARSU: "Akarsu Hidro", JES: "Jeotermal", JEOTERMAL: "Jeotermal",
-  DOGALGAZ: "Doğal Gaz", LNG: "LNG", KOMUR: "Kömür", LINYIT: "Linyit",
-  TASKOMURU: "Taş Kömürü", ITHAL_KOMUR: "İthal Kömür", BIYOKUTLE: "Biyokütle",
-  BIYOGAZ: "Biyogaz", FUELOIL: "Fuel Oil", ANA_KAYNAK: "Ana Kaynak", DIGER: "Diğer",
-};
-const tesisTurAdi = (k) => TESIS_TUR_ADI[k] || (k ? k.charAt(0) + k.slice(1).toLowerCase() : k);
-
-// Il ismi normalizasyonu: GeoJSON (Baslik Harf, Turkce) <-> EPDK (BUYUK HARF)
-const IL_ALIAS = { "AFYON": "AFYONKARAHİSAR" };
+// Il ismi normalizasyonu: GeoJSON (Baslik Harf, Turkce) <-> EPDK/EPIAS (BUYUK HARF)
+const IL_ALIAS = { "AFYON": "AFYONKARAHİSAR", "İÇEL": "MERSİN" };
 const normIl = (s) => (s || "").toLocaleUpperCase("tr-TR").trim();
 const ilKarsilik = (geoAdi, illerObj) => {
   const n = normIl(geoAdi);
@@ -165,28 +156,6 @@ const ilKarsilik = (geoAdi, illerObj) => {
   if (rev && illerObj[rev[0]]) return illerObj[rev[0]];
   return null;
 };
-
-function renkSkala(deger, maks) {
-  if (!deger || !maks) return "#1E293B";
-  const t = Math.min(1, deger / maks);
-  // koyu lacivertten parlak maviye
-  const r = Math.round(30 + t * (56 - 30));
-  const g = Math.round(41 + t * (189 - 41));
-  const b = Math.round(59 + t * (248 - 59));
-  return `rgb(${r},${g},${b})`;
-}
-
-// Kaynak turune gore renk (mumkun oldugunca panonun geri kalaniyla tutarli)
-const KAYNAK_RENK = {
-  GUNES: "#FBBF24", RUZGAR: "#2DD4BF",
-  HES: "#3B82F6", BARAJ: "#3B82F6", AKARSU: "#38BDF8",
-  JES: "#EC4899", JEOTERMAL: "#EC4899",
-  DOGALGAZ: "#F97316", LNG: "#F97316",
-  KOMUR: "#B45309", LINYIT: "#B45309", TASKOMURU: "#B45309", ITHAL_KOMUR: "#64748B",
-  BIYOKUTLE: "#84CC16", BIYOGAZ: "#84CC16",
-  FUELOIL: "#94A3B8", ANA_KAYNAK: "#38BDF8", DIGER: "#94A3B8",
-};
-const kaynakRengi = (k) => KAYNAK_RENK[k] || "#94A3B8";
 
 function hexToRgb(hex) {
   const h = hex.replace("#", "");
@@ -202,6 +171,19 @@ function tonlaRenk(hex, t) {
   const g = Math.round(bg + k * (tg - bg));
   const b = Math.round(bb + k * (tb - bb));
   return `rgb(${r},${g},${b})`;
+}
+
+// Doluluk yuzdesi icin renk skalasi: %0 kirmizi -> %50 sari -> %100 mavi
+function dolulukRengi(pct) {
+  if (pct === null || pct === undefined) return "#1E293B";
+  const t = Math.max(0, Math.min(100, pct)) / 100;
+  const KIRMIZI = [239, 68, 68], SARI = [251, 191, 36], MAVI = [59, 130, 246];
+  const [a, b] = t < 0.5 ? [KIRMIZI, SARI] : [SARI, MAVI];
+  const k = t < 0.5 ? t / 0.5 : (t - 0.5) / 0.5;
+  const r = Math.round(a[0] + k * (b[0] - a[0]));
+  const g = Math.round(a[1] + k * (b[1] - a[1]));
+  const bl = Math.round(a[2] + k * (b[2] - a[2]));
+  return `rgb(${r},${g},${bl})`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -236,8 +218,7 @@ function App() {
   const [weekFiyat, setWeekFiyat] = useState([]);
   const [weekUretim, setWeekUretim] = useState([]);
   const [hedefler, setHedefler] = useState(null);
-  const [santral, setSantral] = useState(null);
-  const [haritaKaynak, setHaritaKaynak] = useState("TOPLAM");
+  const [baraj, setBaraj] = useState(null);
   const [asOf, setAsOf] = useState("2025-12");
 
   useEffect(() => {
@@ -245,7 +226,8 @@ function App() {
     return () => clearInterval(t);
   }, []);
 
-  // backend'den canlı veri çek (ulaşılamazsa demo veride kal)
+  // backend'den canlı veri çek — her uç kendi geldigi anda ekrana yansir
+  // (en yavas istek, zaten gelmis olan digerlerini bekletmesin diye)
   useEffect(() => {
     const ac = new AbortController();
     const to = setTimeout(() => ac.abort(), 45000);
@@ -255,60 +237,68 @@ function App() {
     const today = new Date();
     const weekAgo = new Date(today); weekAgo.setDate(weekAgo.getDate() - 7);
     const iso = (d) => d.toISOString().slice(0, 10);
-    Promise.allSettled([
-      j("/api/kurulu-guc"), j("/api/uretim"), j("/api/tarihsel"), j("/api/uretim-tarihsel"),
-      j("/api/fiyatlar"), j("/api/hedefler"), j("/api/santral-harita"),
-      j(`/api/fiyatlar?start=${iso(weekAgo)}&end=${iso(today)}`),
-      j(`/api/uretim?start=${iso(weekAgo)}&end=${iso(today)}`),
-    ])
-      .then(([kg, ur, th, ut, fy, hd, sh, wfy, wur]) => {
-        let ok = false;
-        if (kg.status === "fulfilled" && kg.value?.kaynaklar?.length) {
-          setSources(kg.value.kaynaklar); setAsOf(kg.value.as_of || asOf); ok = true;
+
+    let herhangiBiriGeldi = false;
+    const basarisizlar = [];
+    const geldi = () => { herhangiBiriGeldi = true; setLive(true); };
+
+    const pKurulu = j("/api/kurulu-guc").then((v) => {
+      if (v?.kaynaklar?.length) { setSources(v.kaynaklar); setAsOf(v.as_of); geldi(); }
+    }).catch((e) => basarisizlar.push("kurulu-guc: " + e.message));
+
+    const pUretim = j("/api/uretim").then((v) => {
+      if (Array.isArray(v) && v.length) { setDay(v); geldi(); }
+    }).catch((e) => basarisizlar.push("uretim: " + e.message));
+
+    j("/api/tarihsel").then((v) => {
+      if (Array.isArray(v) && v.length) {
+        setHist(v);
+        if (!urlHadYearRange.current) {
+          setYearFrom(v[0].year);
+          setYearTo(v[v.length - 1].year);
         }
-        if (ur.status === "fulfilled" && Array.isArray(ur.value) && ur.value.length) {
-          setDay(ur.value); ok = true;
+      }
+    }).catch((e) => basarisizlar.push("tarihsel: " + e.message));
+
+    j("/api/uretim-tarihsel").then((v) => {
+      if (Array.isArray(v) && v.length) {
+        setUretimHist(v);
+        if (!urlHadUYearRange.current) {
+          setUYearFrom(v[0].year);
+          const fullYears = v.filter((r) => r.ay_sayisi === 12);
+          const lastDefault = fullYears.length ? fullYears[fullYears.length - 1] : v[v.length - 1];
+          setUYearTo(lastDefault.year);
         }
-        if (th.status === "fulfilled" && Array.isArray(th.value) && th.value.length) {
-          setHist(th.value);
-          if (!urlHadYearRange.current) {
-            setYearFrom(th.value[0].year);
-            setYearTo(th.value[th.value.length - 1].year);
-          }
-        }
-        if (ut.status === "fulfilled" && Array.isArray(ut.value) && ut.value.length) {
-          setUretimHist(ut.value);
-          if (!urlHadUYearRange.current) {
-            setUYearFrom(ut.value[0].year);
-            // varsayilan gorunum kismi yili degil, en son TAM yili (12 ay) esas alsin
-            const fullYears = ut.value.filter((r) => r.ay_sayisi === 12);
-            const lastDefault = fullYears.length ? fullYears[fullYears.length - 1] : ut.value[ut.value.length - 1];
-            setUYearTo(lastDefault.year);
-          }
-        }
-        if (fy.status === "fulfilled" && Array.isArray(fy.value) && fy.value.length) {
-          setFiyat(fy.value);
-        }
-        if (hd.status === "fulfilled" && hd.value?.gostergeler?.length) {
-          setHedefler(hd.value);
-        }
-        if (sh.status === "fulfilled" && sh.value?.iller) {
-          setSantral(sh.value);
-        }
-        if (wfy.status === "fulfilled" && Array.isArray(wfy.value) && wfy.value.length) {
-          setWeekFiyat(wfy.value);
-        }
-        if (wur.status === "fulfilled" && Array.isArray(wur.value) && wur.value.length) {
-          setWeekUretim(wur.value);
-        }
-        setLive(ok);
-        if (!ok && typeof window !== "undefined" && window.showError) {
-          const errs = [kg, ur, th, ut, fy, hd].filter((x) => x.status === "rejected")
-            .map((x) => String((x.reason && x.reason.message) || x.reason)).join(" | ");
-          window.showError("Backend'e baglanilamadi (" + API + "): " + (errs || "bilinmeyen sebep"));
-        }
-      })
-      .finally(() => clearTimeout(to));
+      }
+    }).catch((e) => basarisizlar.push("uretim-tarihsel: " + e.message));
+
+    j("/api/fiyatlar").then((v) => {
+      if (Array.isArray(v) && v.length) setFiyat(v);
+    }).catch((e) => basarisizlar.push("fiyatlar: " + e.message));
+
+    j("/api/hedefler").then((v) => {
+      if (v?.gostergeler?.length) setHedefler(v);
+    }).catch((e) => basarisizlar.push("hedefler: " + e.message));
+
+    j("/api/baraj-doluluk").then((v) => {
+      if (v?.iller) setBaraj(v);
+    }).catch((e) => basarisizlar.push("baraj-doluluk: " + e.message));
+
+    j(`/api/fiyatlar?start=${iso(weekAgo)}&end=${iso(today)}`).then((v) => {
+      if (Array.isArray(v) && v.length) setWeekFiyat(v);
+    }).catch((e) => basarisizlar.push("fiyatlar(hafta): " + e.message));
+
+    j(`/api/uretim?start=${iso(weekAgo)}&end=${iso(today)}`).then((v) => {
+      if (Array.isArray(v) && v.length) setWeekUretim(v);
+    }).catch((e) => basarisizlar.push("uretim(hafta): " + e.message));
+
+    // hepsi bitince, hicbiri basarili olmadiysa hata goster
+    Promise.allSettled([pKurulu, pUretim]).finally(() => {
+      if (!herhangiBiriGeldi && typeof window !== "undefined" && window.showError) {
+        window.showError("Backend'e baglanilamadi (" + API + "): " + (basarisizlar.join(" | ") || "bilinmeyen sebep"));
+      }
+    });
+
     return () => { clearTimeout(to); ac.abort(); };
   }, []);
 
@@ -354,38 +344,11 @@ function App() {
   const tuketim = Math.round(uretim * 0.986);
   const sorted = useMemo(() => [...sources].sort((a, b) => b.mw - a.mw), [sources]);
 
-  const haritaIller = santral?.iller || {};
-  const haritaKaynaklari = santral?.kaynak_turleri || [];
-  const ilKaydi = (il) => ilKarsilik(il, haritaIller);
-  const ilDegeri = (il) => {
-    const rec = ilKaydi(il);
-    if (!rec) return 0;
-    return haritaKaynak === "TOPLAM" ? rec.toplam : (rec.kaynaklar[haritaKaynak] || 0);
+  const barajIller = baraj?.iller || {};
+  const ilDoluluk = (il) => {
+    const rec = ilKarsilik(il, barajIller);
+    return rec ? rec.doluluk : null;
   };
-  const ilBaskinKaynak = (il) => {
-    const rec = ilKaydi(il);
-    if (!rec) return null;
-    const entries = Object.entries(rec.kaynaklar);
-    if (!entries.length) return null;
-    return entries.sort((a, b) => b[1] - a[1])[0][0];
-  };
-  const haritaMaks = useMemo(() => {
-    let m = 0;
-    TR_PROVINCES.forEach((p) => { m = Math.max(m, ilDegeri(p.name)); });
-    return m;
-  }, [santral, haritaKaynak]);
-  const ilRengi = (il) => {
-    const deger = ilDegeri(il);
-    if (!deger) return "#1E293B";
-    const renk = haritaKaynak === "TOPLAM" ? kaynakRengi(ilBaskinKaynak(il)) : kaynakRengi(haritaKaynak);
-    return tonlaRenk(renk, deger / (haritaMaks || 1));
-  };
-  const topIller = useMemo(() => {
-    return TR_PROVINCES.map((p) => ({ name: p.name, deger: ilDegeri(p.name) }))
-      .filter((x) => x.deger > 0)
-      .sort((a, b) => b.deger - a.deger)
-      .slice(0, 10);
-  }, [santral, haritaKaynak]);
 
   const insights = useMemo(() => {
     const list = [];
@@ -901,96 +864,85 @@ function App() {
 
         {tab === "harita" && (
           <>
-            {!santral ? (
+            {!baraj ? (
               <section className="card">
-                <div className="empty">Santral verisi yükleniyor ya da şu an mevcut değil.</div>
+                <div className="empty">Baraj doluluk verisi yükleniyor ya da şu an mevcut değil.</div>
               </section>
             ) : (
               <>
                 <section className="card">
                   <div className="card-h">
                     <div>
-                      <h2 className="card-title">Türkiye'de Kurulu Güç — İl Bazında</h2>
+                      <h2 className="card-title">Barajların Doluluk Oranı — İl Bazında</h2>
                       <p className="card-sub">
-                        EPDK Elektrik Üretim Lisansı sicilinden — {santral.toplam_tesis} tesis, {haritaKaynaklari.length} kaynak türü
+                        EPİAŞ'tan {baraj.as_of} itibarıyla — {baraj.baraj_sayisi} baraj, ulusal ortalama %{fmtHedef(baraj.ulusal_ortalama)}
                       </p>
                     </div>
-                  </div>
-
-                  <div className="chips">
-                    <button className={"chip" + (haritaKaynak === "TOPLAM" ? " on" : "")}
-                            style={haritaKaynak === "TOPLAM" ? { borderColor: "#38BDF8", color: "#38BDF8" } : {}}
-                            onClick={() => setHaritaKaynak("TOPLAM")}>
-                      <span className="chip-dot" style={{ background: "#38BDF8" }} />
-                      Tümü
-                    </button>
-                    {haritaKaynaklari.map((k) => (
-                      <button key={k}
-                        className={"chip" + (haritaKaynak === k ? " on" : "")}
-                        style={haritaKaynak === k ? { borderColor: kaynakRengi(k), color: kaynakRengi(k) } : {}}
-                        onClick={() => setHaritaKaynak(k)}>
-                        <span className="chip-dot" style={{ background: kaynakRengi(k) }} />
-                        {tesisTurAdi(k)}
-                      </button>
-                    ))}
                   </div>
 
                   <div className="harita-wrap">
                     <svg viewBox={TR_VIEWBOX} className="harita-svg">
                       {TR_PROVINCES.map((p) => {
-                        const deger = ilDegeri(p.name);
-                        const baskin = haritaKaynak === "TOPLAM" ? ilBaskinKaynak(p.name) : null;
+                        const doluluk = ilDoluluk(p.name);
                         return (
                           <path key={p.name} d={p.path}
-                                fill={ilRengi(p.name)}
+                                fill={dolulukRengi(doluluk)}
                                 stroke="#0A0F1C" strokeWidth="0.4">
                             <title>
-                              {p.name}: {fmtHedef(deger)} MW{baskin ? ` — en çok ${tesisTurAdi(baskin)}` : ""}
+                              {p.name}: {doluluk !== null ? `%${fmtHedef(doluluk)} doluluk` : "baraj yok / veri yok"}
                             </title>
                           </path>
                         );
                       })}
                     </svg>
                     <div className="harita-legend">
-                      {haritaKaynak === "TOPLAM" ? (
-                        <div className="harita-legend-chips">
-                          {haritaKaynaklari.map((k) => (
-                            <span className="lg" key={k}>
-                              <span className="lg-dot" style={{ background: kaynakRengi(k) }} />
-                              {tesisTurAdi(k)}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <>
-                          <span>0 MW</span>
-                          <div className="harita-legend-bar"
-                               style={{ background: `linear-gradient(90deg, #1E293B, ${kaynakRengi(haritaKaynak)})` }} />
-                          <span>{fmtHedef(haritaMaks)} MW</span>
-                        </>
-                      )}
+                      <span>%0</span>
+                      <div className="harita-legend-bar"
+                           style={{ background: "linear-gradient(90deg, #EF4444, #FBBF24, #3B82F6)" }} />
+                      <span>%100</span>
                     </div>
                   </div>
                   <p className="card-sub" style={{ marginTop: 8 }}>
-                    Üzerine gelerek il bazında MW değerini görebilirsin. Konum il düzeyindedir; kesin santral koordinatı gösterilmemektedir.
+                    Üzerine gelerek il bazında doluluk oranını görebilirsin. Değer, o ildeki barajların kurulu güç ağırlıklı ortalamasıdır.
+                    Baraj bulunmayan iller gri görünür.
                   </p>
                 </section>
 
                 <section className="card">
                   <div className="card-h">
-                    <h2 className="card-title">En Yüksek Kurulu Güce Sahip 10 İl</h2>
-                    <span className="badge">{haritaKaynak === "TOPLAM" ? "Tüm kaynaklar" : tesisTurAdi(haritaKaynak)}</span>
+                    <h2 className="card-title">Havzalara Göre Ortalama Doluluk</h2>
+                    <span className="badge">{baraj.havzalar.length} havza</span>
                   </div>
                   <div className="bars">
-                    {topIller.map((r) => (
-                      <div className="bar-row" key={r.name}>
-                        <span className="bar-name">{r.name}</span>
+                    {baraj.havzalar.map((h) => (
+                      <div className="bar-row" key={h.havza}>
+                        <span className="bar-name">{h.havza}</span>
                         <div className="bar-track">
                           <div className="bar-fill" style={{
-                            width: `${(r.deger / (topIller[0]?.deger || 1)) * 100}%`,
-                            background: haritaKaynak === "TOPLAM" ? kaynakRengi(ilBaskinKaynak(r.name)) : kaynakRengi(haritaKaynak) }} />
+                            width: `${h.doluluk}%`, background: dolulukRengi(h.doluluk) }} />
                         </div>
-                        <span className="bar-val">{fmtHedef(r.deger)}</span>
+                        <span className="bar-val">%{fmtHedef(h.doluluk)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="card">
+                  <div className="card-h">
+                    <div>
+                      <h2 className="card-title">En Düşük Doluluklu 10 Baraj</h2>
+                      <p className="card-sub">Kuraklık riski açısından takip edilmesi gereken barajlar</p>
+                    </div>
+                  </div>
+                  <div className="bars">
+                    {baraj.en_dusuk_barajlar.map((b) => (
+                      <div className="bar-row" key={b.damId}>
+                        <span className="bar-name">{b.damName} <span style={{ color: "var(--tx3)", fontSize: 11 }}>({b.basin})</span></span>
+                        <div className="bar-track">
+                          <div className="bar-fill" style={{
+                            width: `${b.fullnessPct}%`, background: dolulukRengi(b.fullnessPct) }} />
+                        </div>
+                        <span className="bar-val">%{fmtHedef(b.fullnessPct)}</span>
                       </div>
                     ))}
                   </div>

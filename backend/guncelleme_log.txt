@@ -38,3 +38,37 @@ nothing added to commit but untracked files present (use "git add" to track)
 Everything up-to-date
 €ar 22.07.2026 23:16:37,84 - Tamamlandi 
  
+============================================== 
+Per 23.07.2026  0:09:25,87 - Baslatildi 
+1) YTBS'den Excel cekiliyor...
+
+HATA: Excel donmedi (content-type=text/html;charset=UTF-8)
+Per 23.07.2026  0:09:31,58 - HATA: python scripti basarisiz oldu, push yapilmiyor 
+============================================== 
+Per 23.07.2026 18:55:45,24 - Baslatildi 
+C:\Users\alper\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\openpyxl\styles\stylesheet.py:237: UserWarning: Workbook contains no default style, apply openpyxl's default
+  warn("Workbook contains no default style, apply openpyxl's default")
+1) YTBS'den Excel cekiliyor...
+   Alindi (3406984 byte)
+2) Ayristiriliyor...
+   as_of: 22.07.2026 (YTBS günlük)
+   Güneþ: 27257 MW
+   Doðal Gaz: 24778 MW
+   Barajlý Hidro: 23868 MW
+   Rüzgar: 15311 MW
+   Yerli Kömür: 11560 MW
+   Ýthal Kömür: 10466 MW
+   Akarsu Hidro: 8446 MW
+   Biyokütle: 2168 MW
+   Jeotermal: 1798 MW
+   Fuel Oil / Diðer: 505 MW
+3) Kaydediliyor -> C:\Users\alper\OneDrive\Masaüstü\WEB Sitesi Çalýþma\turkiye-elektrik-panosu\backend\kurulu_guc_guncel.json
+
+BASARILI. Simdi GitHub Desktop'ta bu dosyayi commit + push et:
+   kurulu_guc_guncel.json
+[main 3f1fde1] otomatik: kurulu guc guncellendi (Per 23.07.2026)
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+To https://github.com/alperydn/turkiye-elektrik-panosu.git
+   cdf10dc..3f1fde1  main -> main
+Per 23.07.2026 18:55:58,16 - Tamamlandi 
+ 
