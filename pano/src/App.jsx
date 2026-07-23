@@ -404,24 +404,8 @@ function App() {
         });
       }
     }
-    if (hedefler?.gostergeler?.length) {
-      const asanlar = hedefler.gostergeler.filter(
-        (g) => g.veri_var && g.hedef_donem_degeri != null && g.hedef_donem_degeri !== 0 && g.gerceklesen > g.hedef_donem_degeri
-      );
-      if (asanlar.length) {
-        const asilan = asanlar.sort(
-          (a, b) => (b.gerceklesen - b.hedef_donem_degeri) / Math.abs(b.hedef_donem_degeri) -
-                    (a.gerceklesen - a.hedef_donem_degeri) / Math.abs(a.hedef_donem_degeri)
-        )[0];
-        const fazlaPct = ((asilan.gerceklesen - asilan.hedef_donem_degeri) / Math.abs(asilan.hedef_donem_degeri)) * 100;
-        list.push({
-          renk: "#38BDF8",
-          metin: `${asilan.gosterge_adi}, ${asilan.hedef_donem_yili} hedefini şimdiden %${fmt(fazlaPct)} aşmış durumda (${fmtHedef(asilan.gerceklesen)} ${asilan.birim} / hedef ${fmtHedef(asilan.hedef_donem_degeri)} ${asilan.birim}).`,
-        });
-      }
-    }
     return list;
-  }, [fiyat, weekFiyat, day, weekUretim, sources, hedefler]);
+  }, [fiyat, weekFiyat, day, weekUretim, sources]);
   const histYears = hist.map((h) => h.year);
   const histView = hist.filter((h) => h.year >= yearFrom && h.year <= yearTo);
   const uretimYears = uretimHist.map((h) => h.year);
@@ -904,7 +888,9 @@ function App() {
                   </div>
                   <p className="card-sub" style={{ marginTop: 8 }}>
                     Üzerine gelerek il bazında doluluk oranını görebilirsin. Değer, o ildeki barajların kurulu güç ağırlıklı ortalamasıdır.
-                    Baraj bulunmayan iller gri görünür.
+                    Gri iller "veri yok" demektir — bu, o ilde baraj olmadığı anlamına gelmez. EPİAŞ'ın bu servisi {baraj.baraj_sayisi} barajı
+                    kapsıyor; GAP bölgesindeki büyük barajlar (Atatürk, Keban, Karakaya, Birecik, Karkamış vb.) bu listede yer almıyor —
+                    muhtemelen DSİ tarafından ayrı bir kanaldan izleniyorlar.
                   </p>
                 </section>
 
