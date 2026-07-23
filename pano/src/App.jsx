@@ -422,7 +422,7 @@ function App() {
 
   const TABS = [["genel","Genel Bakış"],["kurulu","Kurulu Güç"],
                 ["uretim","Üretim"],["fiyat","Fiyatlar"],["hedef","Hedefler"],
-                ["harita","Santral Haritası"],["tarih","Tarihsel"]];
+                ["harita","Barajlar Su Durumu"],["tarih","Tarihsel"]];
 
   return (
     <div className="root">
