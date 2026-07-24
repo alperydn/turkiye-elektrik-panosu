@@ -72,3 +72,65 @@ To https://github.com/alperydn/turkiye-elektrik-panosu.git
    cdf10dc..3f1fde1  main -> main
 Per 23.07.2026 18:55:58,16 - Tamamlandi 
  
+============================================== 
+Per 23.07.2026 23:55:28,03 - Baslatildi 
+C:\Users\alper\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\openpyxl\styles\stylesheet.py:237: UserWarning: Workbook contains no default style, apply openpyxl's default
+  warn("Workbook contains no default style, apply openpyxl's default")
+1) YTBS'den Excel cekiliyor...
+   Alindi (3406982 byte)
+2) Ayristiriliyor...
+   as_of: 22.07.2026 (YTBS günlük)
+   Güneþ: 27257 MW
+   Doðal Gaz: 24778 MW
+   Barajlý Hidro: 23868 MW
+   Rüzgar: 15311 MW
+   Yerli Kömür: 11560 MW
+   Ýthal Kömür: 10466 MW
+   Akarsu Hidro: 8446 MW
+   Biyokütle: 2168 MW
+   Jeotermal: 1798 MW
+   Fuel Oil / Diðer: 505 MW
+3) Kaydediliyor -> C:\Users\alper\OneDrive\Masaüstü\WEB Sitesi Çalýþma\turkiye-elektrik-panosu\backend\kurulu_guc_guncel.json
+
+BASARILI. Simdi GitHub Desktop'ta bu dosyayi commit + push et:
+   kurulu_guc_guncel.json
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   guncelleme_log.txt
+
+no changes added to commit (use "git add" and/or "git commit -a")
+Everything up-to-date
+Per 23.07.2026 23:55:45,20 - Tamamlandi 
+ 
+============================================== 
+Cum 24.07.2026 20:54:16,28 - Baslatildi 
+C:\Users\alper\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\openpyxl\styles\stylesheet.py:237: UserWarning: Workbook contains no default style, apply openpyxl's default
+  warn("Workbook contains no default style, apply openpyxl's default")
+1) YTBS'den Excel cekiliyor...
+   Alindi (3407305 byte)
+2) Ayristiriliyor...
+   as_of: 23.07.2026 (YTBS günlük)
+   Güneþ: 27258 MW
+   Doðal Gaz: 24769 MW
+   Barajlý Hidro: 23868 MW
+   Rüzgar: 15311 MW
+   Yerli Kömür: 11560 MW
+   Ýthal Kömür: 10466 MW
+   Akarsu Hidro: 8446 MW
+   Biyokütle: 2168 MW
+   Jeotermal: 1798 MW
+   Fuel Oil / Diðer: 505 MW
+3) Kaydediliyor -> C:\Users\alper\OneDrive\Masaüstü\WEB Sitesi Çalýþma\turkiye-elektrik-panosu\backend\kurulu_guc_guncel.json
+
+BASARILI. Simdi GitHub Desktop'ta bu dosyayi commit + push et:
+   kurulu_guc_guncel.json
+[main b0659c5] otomatik: kurulu guc guncellendi (Cum 24.07.2026)
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+To https://github.com/alperydn/turkiye-elektrik-panosu.git
+   1f040bc..b0659c5  main -> main
+Cum 24.07.2026 20:54:28,25 - Tamamlandi 
+ 
