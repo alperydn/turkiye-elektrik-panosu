@@ -201,10 +201,14 @@ function App() {
   const [sources, setSources] = useState(DEMO_SOURCES);
   const [day, setDay] = useState(buildDemoDay);
   const [hist, setHist] = useState(DEMO_HIST);
+  const [histAylik, setHistAylik] = useState([]);
+  const [histGranularity, setHistGranularity] = useState("yillik"); // "yillik" | "aylik"
   const [histSel, setHistSel] = useState(
     urlParams.get("hsel") ? urlParams.get("hsel").split(",") : HIST_SOURCES.map((s) => s.key)
   );
   const [uretimHist, setUretimHist] = useState([]);
+  const [uretimHistAylik, setUretimHistAylik] = useState([]);
+  const [uGranularity, setUGranularity] = useState("yillik"); // "yillik" | "aylik"
   const [uretimSel, setUretimSel] = useState(
     urlParams.get("usel") ? urlParams.get("usel").split(",") : HIST_SOURCES.map((s) => s.key)
   );
@@ -271,6 +275,14 @@ function App() {
         }
       }
     }).catch((e) => basarisizlar.push("uretim-tarihsel: " + e.message));
+
+    j("/api/tarihsel-aylik").then((v) => {
+      if (Array.isArray(v) && v.length) setHistAylik(v);
+    }).catch((e) => basarisizlar.push("tarihsel-aylik: " + e.message));
+
+    j("/api/uretim-tarihsel-aylik").then((v) => {
+      if (Array.isArray(v) && v.length) setUretimHistAylik(v);
+    }).catch((e) => basarisizlar.push("uretim-tarihsel-aylik: " + e.message));
 
     j("/api/fiyatlar").then((v) => {
       if (Array.isArray(v) && v.length) setFiyat(v);
@@ -408,21 +420,26 @@ function App() {
   }, [fiyat, weekFiyat, day, weekUretim, sources]);
   const histYears = hist.map((h) => h.year);
   const histView = hist.filter((h) => h.year >= yearFrom && h.year <= yearTo);
+  const histAylikView = histAylik.filter((h) => h.year >= yearFrom && h.year <= yearTo);
+  const histXInterval = Math.max(0, Math.floor(histAylikView.length / 12));
   const uretimYears = uretimHist.map((h) => h.year);
   const uretimView = uretimHist.filter((h) => h.year >= (uYearFrom || "0") && h.year <= (uYearTo || "9999"));
+  const uretimAylikView = uretimHistAylik.filter((h) => h.year >= (uYearFrom || "0") && h.year <= (uYearTo || "9999"));
+  const uretimXInterval = Math.max(0, Math.floor(uretimAylikView.length / 12));
+  const uretimBaseView = uGranularity === "aylik" ? uretimAylikView : uretimView;
   const uretimViewData = uretimMode === "yuzde"
-    ? uretimView.map((row) => {
-        const out = { year: row.year, toplam: row.toplam };
+    ? uretimBaseView.map((row) => {
+        const out = { year: row.year, period: row.period, toplam: row.toplam };
         HIST_SOURCES.forEach((s) => {
           out[s.key] = row.toplam ? Math.round((row[s.key] / row.toplam) * 1000) / 10 : 0;
         });
         return out;
       })
-    : uretimView;
+    : uretimBaseView;
 
   const TABS = [["genel","Genel Bakış"],["kurulu","Kurulu Güç"],
                 ["uretim","Üretim"],["fiyat","Fiyatlar"],["hedef","Hedefler"],
-                ["harita","Barajlar Su Durumu"],["tarih","Tarihsel"]];
+                ["harita","Santral Haritası"],["tarih","Tarihsel"]];
 
   return (
     <div className="root">
@@ -944,7 +961,10 @@ function App() {
               <div className="card-h">
                 <div>
                   <h2 className="card-title">Kaynak Bazında Kurulu Güç Gelişimi</h2>
-                  <p className="card-sub">Yıl aralığı ve kaynakları seç — {yearFrom}–{yearTo} (MW)</p>
+                  <p className="card-sub">
+                    Yıl aralığı ve kaynakları seç — {yearFrom}–{yearTo} (MW)
+                    {histGranularity === "aylik" ? ", aylık gösterim" : ""}
+                  </p>
                 </div>
                 <div className="hd-controls">
                   <div className="range">
@@ -958,6 +978,12 @@ function App() {
                       onChange={(e) => { const v = e.target.value; setYearTo(v); if (v < yearFrom) setYearFrom(v); }}>
                       {histYears.map((y) => <option key={y} value={y}>{y}</option>)}
                     </select>
+                  </div>
+                  <div className="chip-actions">
+                    <button className={"chip-btn" + (histGranularity === "yillik" ? " active" : "")}
+                            onClick={() => setHistGranularity("yillik")}>Yıllık</button>
+                    <button className={"chip-btn" + (histGranularity === "aylik" ? " active" : "")}
+                            onClick={() => setHistGranularity("aylik")}>Aylık</button>
                   </div>
                   <div className="chip-actions">
                     <button className="chip-btn"
@@ -987,9 +1013,10 @@ function App() {
                 <div className="empty">En az bir kaynak seç — grafik burada görünecek.</div>
               ) : (
                 <ResponsiveContainer width="100%" height={330}>
-                  <LineChart data={histView} margin={{ top: 8, right: 8, left: -4, bottom: 0 }}>
+                  <LineChart data={histGranularity === "aylik" ? histAylikView : histView} margin={{ top: 8, right: 8, left: -4, bottom: 0 }}>
                     <CartesianGrid stroke="#1E293B" vertical={false} />
-                    <XAxis dataKey="year" tick={{ fill: "#64748B", fontSize: 12 }}
+                    <XAxis dataKey={histGranularity === "aylik" ? "period" : "year"} tick={{ fill: "#64748B", fontSize: 12 }}
+                           interval={histGranularity === "aylik" ? histXInterval : 0}
                            tickLine={false} axisLine={{ stroke: "#1E293B" }} />
                     <YAxis tick={{ fill: "#64748B", fontSize: 11 }} tickLine={false}
                            axisLine={false} tickFormatter={(v) => `${Math.round(v/1000)}k`} />
@@ -1038,6 +1065,7 @@ function App() {
                     <h2 className="card-title">Yıllara ve Kaynaklara Göre Elektrik Üretimi</h2>
                     <p className="card-sub">
                       Yıl aralığı ve kaynakları seç — {uYearFrom}–{uYearTo} (GWh)
+                      {uGranularity === "aylik" ? ", aylık gösterim" : ""}
                     </p>
                   </div>
                   <div className="hd-controls">
@@ -1052,6 +1080,12 @@ function App() {
                         onChange={(e) => { const v = e.target.value; setUYearTo(v); if (v < uYearFrom) setUYearFrom(v); }}>
                         {uretimYears.map((y) => <option key={y} value={y}>{y}</option>)}
                       </select>
+                    </div>
+                    <div className="chip-actions">
+                      <button className={"chip-btn" + (uGranularity === "yillik" ? " active" : "")}
+                              onClick={() => setUGranularity("yillik")}>Yıllık</button>
+                      <button className={"chip-btn" + (uGranularity === "aylik" ? " active" : "")}
+                              onClick={() => setUGranularity("aylik")}>Aylık</button>
                     </div>
                     <div className="chip-actions">
                       <button className={"chip-btn" + (uretimMode === "mutlak" ? " active" : "")}
@@ -1089,7 +1123,8 @@ function App() {
                   <ResponsiveContainer width="100%" height={330}>
                     <LineChart data={uretimViewData} margin={{ top: 8, right: 8, left: -4, bottom: 0 }}>
                       <CartesianGrid stroke="#1E293B" vertical={false} />
-                      <XAxis dataKey="year" tick={{ fill: "#64748B", fontSize: 12 }}
+                      <XAxis dataKey={uGranularity === "aylik" ? "period" : "year"} tick={{ fill: "#64748B", fontSize: 12 }}
+                             interval={uGranularity === "aylik" ? uretimXInterval : 0}
                              tickLine={false} axisLine={{ stroke: "#1E293B" }} />
                       <YAxis tick={{ fill: "#64748B", fontSize: 11 }} tickLine={false}
                              axisLine={false}

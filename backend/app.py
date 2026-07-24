@@ -146,9 +146,15 @@ def _kurulu_guc_guncel():
     return _kurulu_guc_from_teias()
 
 
-def _tarihsel_uretim_from_teias():
-    """'GENEL_YILLIK_ISLETME_NETICESI' raporundan (kaynak bazinda aylik
-    uretim, kWh/MWh karisik) yillik toplam uretimi GWh olarak hesaplar."""
+TURKCE_AY_NO = {
+    "Ocak": 1, "Şubat": 2, "Mart": 3, "Nisan": 4, "Mayıs": 5, "Haziran": 6,
+    "Temmuz": 7, "Ağustos": 8, "Eylül": 9, "Ekim": 10, "Kasım": 11, "Aralık": 12,
+}
+
+
+def _uretim_aylik_liste():
+    """'GENEL_YILLIK_ISLETME_NETICESI' raporundan (kaynak bazinda) her ay
+    icin AYRI bir satir dondurur (agregasyon yapmadan) - MWh cinsinden."""
     if not URETIM_XLSX_PATH.exists():
         raise HTTPException(
             status_code=500,
@@ -159,10 +165,7 @@ def _tarihsel_uretim_from_teias():
     rows = list(ws.iter_rows(values_only=True))
 
     header_idxs = [i for i, r in enumerate(rows) if r[1] == "AY"]
-    KEYS = ["dogalgaz", "linyit", "ithalKomur", "diger", "biyokutle",
-            "jeotermal", "akarsu", "barajli", "gunes", "ruzgar", "toplam"]
-    yearly = {}
-    month_count = {}
+    out = []
     for hi in header_idxs:
         unit = rows[hi][-1] or ""
         is_kwh = "kWh" in unit
@@ -170,6 +173,7 @@ def _tarihsel_uretim_from_teias():
         j = hi + 1
         while j < len(rows) and rows[j][1] not in (None, "AY"):
             r = rows[j]
+            ay_adi = str(r[1]).strip() if r[1] else None
             v = lambda i: float(r[i]) if r[i] is not None else 0.0
             vals = {
                 "dogalgaz":   v(2) + v(3),
@@ -186,19 +190,50 @@ def _tarihsel_uretim_from_teias():
             }
             if is_kwh:
                 vals = {k: val / 1000 for k, val in vals.items()}  # kWh -> MWh
-            yearly.setdefault(year, {k: 0.0 for k in KEYS})
-            month_count[year] = month_count.get(year, 0) + 1
-            for k in KEYS:
-                yearly[year][k] += vals[k]
+            ay_no = TURKCE_AY_NO.get(ay_adi)
+            period = f"{year}-{ay_no:02d}" if ay_no else f"{year}-{ay_adi}"
+            out.append({"year": year, "ay": ay_adi, "ay_no": ay_no, "period": period, **vals})
             j += 1
+    return out
+
+
+def _tarihsel_uretim_from_teias():
+    """Aylik listeyi yillik toplamlara indirger (GWh)."""
+    aylik = _uretim_aylik_liste()
+    KEYS = ["dogalgaz", "linyit", "ithalKomur", "diger", "biyokutle",
+            "jeotermal", "akarsu", "barajli", "gunes", "ruzgar", "toplam"]
+    yearly = {}
+    month_count = {}
+    for r in aylik:
+        year = r["year"]
+        yearly.setdefault(year, {k: 0.0 for k in KEYS})
+        month_count[year] = month_count.get(year, 0) + 1
+        for k in KEYS:
+            yearly[year][k] += r[k]
 
     out = []
     for year in sorted(yearly.keys()):
         row = {"year": year, "ay_sayisi": month_count[year]}
         for k in KEYS:
             row[k] = round(yearly[year][k] / 1000, 1)  # MWh -> GWh
-        row["hidro"] = round(row["akarsu"] + row["barajli"], 1)  # HIST_SOURCES grafiginde kullanilan birlesik alan
+        row["hidro"] = round(row["akarsu"] + row["barajli"], 1)
         out.append(row)
+    return out
+
+
+def _tarihsel_uretim_aylik_from_teias():
+    """Aylik listeyi GWh'e cevirip on yuze yollar (period='YYYY-AA')."""
+    aylik = _uretim_aylik_liste()
+    KEYS = ["dogalgaz", "linyit", "ithalKomur", "diger", "biyokutle",
+            "jeotermal", "akarsu", "barajli", "gunes", "ruzgar", "toplam"]
+    out = []
+    for r in aylik:
+        row = {"period": r["period"], "year": r["year"], "ay": r["ay"]}
+        for k in KEYS:
+            row[k] = round(r[k] / 1000, 1)  # MWh -> GWh
+        row["hidro"] = round(row["akarsu"] + row["barajli"], 1)
+        out.append(row)
+    out.sort(key=lambda r: r["period"])
     return out
 
 
@@ -224,6 +259,30 @@ def _tarihsel_from_teias():
             "biyokutle": round(r["biyokutle"]),
             "diger": round(r["diger"]),
         })
+    return out
+
+
+def _tarihsel_aylik_from_teias():
+    """TEİAŞ kurulu guc Excel'inden AYLIK kurulu guc serisi (period='YYYY-MM')."""
+    rows = _read_teias_rows()
+    out = []
+    for r in rows:
+        out.append({
+            "period": r["period"],
+            "year": r["year"],
+            "month": r["month"],
+            "toplam": round(r["toplam"]),
+            "gunes": round(r["gunes"]),
+            "ruzgar": round(r["ruzgar"]),
+            "hidro": round(r["barajli"] + r["akarsu"]),
+            "dogalgaz": round(r["dogalgaz"]),
+            "linyit": round(r["linyit"]),
+            "ithalKomur": round(r["ithalKomur"]),
+            "jeotermal": round(r["jeotermal"]),
+            "biyokutle": round(r["biyokutle"]),
+            "diger": round(r["diger"]),
+        })
+    out.sort(key=lambda r: r["period"])
     return out
 
 
@@ -563,9 +622,19 @@ def tarihsel():
     return cached("tarihsel", 6 * 3600, _tarihsel_from_teias)
 
 
+@app.get("/api/tarihsel-aylik")
+def tarihsel_aylik():
+    return cached("tarihsel-aylik", 6 * 3600, _tarihsel_aylik_from_teias)
+
+
 @app.get("/api/uretim-tarihsel")
 def uretim_tarihsel():
     return cached("uretim-tarihsel", 6 * 3600, _tarihsel_uretim_from_teias)
+
+
+@app.get("/api/uretim-tarihsel-aylik")
+def uretim_tarihsel_aylik():
+    return cached("uretim-tarihsel-aylik", 6 * 3600, _tarihsel_uretim_aylik_from_teias)
 
 
 @app.get("/api/uretim")
