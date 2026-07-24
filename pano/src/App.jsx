@@ -600,6 +600,14 @@ function App() {
                   <div><span className="split-dot" style={{ background: "#64748B" }} />
                     Fosil / Diğer <b>%{(100 - renewPct).toFixed(1)}</b></div>
                 </div>
+                <div className="split" style={{ borderTop: "1px solid var(--line)", marginTop: 10, paddingTop: 14 }}>
+                  <div><span className="split-dot" style={{ background: "#2DD4BF" }} />
+                    Rüzgar <b>%{((sources.find((s) => s.key === "ruzgar")?.mw || 0) / total * 100).toFixed(1)}</b></div>
+                  <div><span className="split-dot" style={{ background: "#FBBF24" }} />
+                    Güneş <b>%{((sources.find((s) => s.key === "gunes")?.mw || 0) / total * 100).toFixed(1)}</b></div>
+                  <div><span className="split-dot" style={{ background: "#38BDF8" }} />
+                    Kesintili Toplam <b>%{(((sources.find((s) => s.key === "ruzgar")?.mw || 0) + (sources.find((s) => s.key === "gunes")?.mw || 0)) / total * 100).toFixed(1)}</b></div>
+                </div>
               </div>
 
               <div className="card">
@@ -1245,7 +1253,7 @@ const CSS = `
 .lg{ font-size:12px; color:var(--tx2); display:inline-flex; align-items:center; gap:6px; }
 .lg b{ color:var(--tx); }
 .lg-dot{ width:9px; height:9px; border-radius:3px; }
-.split{ display:flex; justify-content:space-around; gap:12px; margin-top:6px; padding-top:14px; border-top:1px solid var(--line); font-size:13px; color:var(--tx2); }
+.split{ display:flex; flex-wrap:wrap; justify-content:space-around; gap:10px 12px; margin-top:6px; padding-top:14px; border-top:1px solid var(--line); font-size:13px; color:var(--tx2); }
 .split b{ color:var(--tx); margin-left:4px; }
 .split-dot{ width:9px; height:9px; border-radius:3px; display:inline-block; margin-right:7px; }
 .tbl{ width:100%; border-collapse:collapse; font-size:13px; }
