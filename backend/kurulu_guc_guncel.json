@@ -1,17 +1,17 @@
 {
-  "as_of": "22.07.2026 (YTBS günlük)",
+  "as_of": "23.07.2026 (YTBS günlük)",
   "kaynaklar": [
     {
       "key": "gunes",
       "name": "Güneş",
-      "mw": 27257,
+      "mw": 27258,
       "color": "#FBBF24",
       "renewable": true
     },
     {
       "key": "dogalgaz",
       "name": "Doğal Gaz",
-      "mw": 24778,
+      "mw": 24769,
       "color": "#F97316",
       "renewable": false
     },
